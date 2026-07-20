@@ -1,0 +1,80 @@
+import os
+import subprocess
+from pathlib import Path
+from typing import Iterator
+
+IGNORE_DIRS = {
+    ".git",
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    ".next",
+    ".angular",
+    "vendor",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "env",
+    ".env",
+    ".headroom-venv",
+    "pb_data",
+    "pb_public",
+    ".idea",
+    ".vscode",
+    ".cache",
+    "tmp",
+    "logs",
+}
+
+CODE_EXTENSIONS = {
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".py",
+    ".go",
+    ".rs",
+    ".php",
+    ".java",
+    ".cs",
+    ".html",
+    ".css",
+    ".scss",
+    ".yml",
+    ".yaml",
+    ".md",
+    ".sql",
+}
+
+
+def repo_root() -> Path:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return Path.cwd().resolve()
+
+    return Path(result.stdout.strip()).resolve()
+
+
+def read_file(path: Path) -> str:
+    try:
+        return path.read_text(errors="ignore")
+    except Exception:
+        return ""
+
+
+def iter_code_files(repo: Path) -> Iterator[Path]:
+    for current_root, dirs, filenames in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+
+        for filename in filenames:
+            path = Path(current_root) / filename
+
+            if path.suffix in CODE_EXTENSIONS:
+                yield path

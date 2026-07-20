@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contextforge"
+description = "AI-first repository exploration for coding assistants."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dynamic = ["version"]
+authors = [
+    { name = "ContextForge contributors" }
+]
+keywords = ["cli", "repository", "code-search", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+]
+dependencies = [
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+cf = "contextforge.cli:main"
+
+[tool.setuptools]
+packages = ["contextforge"]
+
+[tool.setuptools.dynamic]
+version = { attr = "contextforge.__version__" }
