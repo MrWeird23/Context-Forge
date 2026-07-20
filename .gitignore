@@ -3,6 +3,9 @@
 __pycache__/
 *.pyc
 *.egg-info/
+build/
+.contextforge/
+.pytest_cache/
 
 # macOS
 .DS_Store

@@ -63,7 +63,7 @@ def test_index_is_incremental_and_excludes_its_own_cache(sample_repo: Path):
     assert first.returncode == second.returncode == 0
     first_payload = json.loads(first.stdout)
     second_payload = json.loads(second.stdout)
-    assert first_payload["indexed"] >= 4
+    assert first_payload["indexed"] == 3
     assert second_payload["indexed"] == 0
     assert second_payload["unchanged"] == first_payload["total_files"]
     assert (sample_repo / ".contextforge" / "index.sqlite").exists()
@@ -101,3 +101,25 @@ def test_brief_reports_entry_points_commands_architecture_and_evidence(sample_re
     assert payload["architecture"]
     assert payload["symbols"]["total"] >= 5
     assert payload["evidence"]
+
+
+def test_index_ignores_source_symlinks_that_escape_repository(sample_repo: Path, tmp_path_factory):
+    outside = tmp_path_factory.mktemp("outside") / "secret.py"
+    outside.write_text("SECRET_TOKEN = 'must-not-be-indexed'\n")
+    (sample_repo / "leak.py").symlink_to(outside)
+
+    result = run_cf(sample_repo, "search", "must-not-be-indexed", "--format", "json")
+
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["results"] == []
+
+
+def test_index_rejects_symlinked_cache_directory(sample_repo: Path, tmp_path_factory):
+    outside = tmp_path_factory.mktemp("cache-target")
+    (sample_repo / ".contextforge").symlink_to(outside, target_is_directory=True)
+
+    result = run_cf(sample_repo, "index", "--format", "json")
+
+    assert result.returncode != 0
+    assert "unsafe cache path" in result.stderr.lower()
+    assert not (outside / "index.sqlite").exists()

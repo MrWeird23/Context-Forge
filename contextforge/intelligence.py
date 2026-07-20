@@ -57,8 +57,15 @@ def _digest(path: Path) -> str:
 
 def _connect(repo: Path) -> sqlite3.Connection:
     cache = repo / CACHE_DIR
+    database = cache / INDEX_NAME
+    if cache.is_symlink() or database.is_symlink():
+        raise RuntimeError(f"Unsafe cache path: {cache} must not be a symlink")
     cache.mkdir(exist_ok=True)
-    connection = sqlite3.connect(cache / INDEX_NAME)
+    try:
+        cache.resolve().relative_to(repo.resolve())
+    except ValueError as exc:
+        raise RuntimeError(f"Unsafe cache path: {cache} escapes the repository") from exc
+    connection = sqlite3.connect(database)
     connection.row_factory = sqlite3.Row
     connection.executescript(
         """
@@ -125,7 +132,12 @@ def _python_entities(path: str, content: str) -> tuple[list[Symbol], list[Refere
             self.generic_visit(node)
             scope.pop()
 
-        visit_AsyncFunctionDef = visit_FunctionDef
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+            kind = "method" if scope else "function"
+            symbols.append(Symbol(node.name, kind, path, node.lineno, getattr(node, "end_lineno", node.lineno), scope[-1] if scope else None, self._signature(node)))
+            scope.append(node.name)
+            self.generic_visit(node)
+            scope.pop()
 
         def visit_Call(self, node: ast.Call):
             if isinstance(node.func, ast.Name):
@@ -285,7 +297,12 @@ def read_pyproject(repo: Path) -> dict:
     if not path.exists():
         return {}
     try:
-        import tomllib
+        try:
+            import tomllib
+        except ModuleNotFoundError:  # pragma: no cover - exercised on Python 3.10
+            from importlib import import_module
+
+            tomllib = import_module("tomli")
 
         return tomllib.loads(path.read_text(errors="ignore"))
     except Exception:

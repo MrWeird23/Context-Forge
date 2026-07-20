@@ -48,6 +48,11 @@ HELP_TEXT = """Examples:
   cf architecture
   cf search auth
   cf feature auth
+  cf index
+  cf symbol UserService
+  cf refs create_user
+  cf trace register
+  cf brief --format json
   cf doctor"""
 
 
