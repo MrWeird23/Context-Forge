@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from .scanner import read_file
+from .intelligence import ContextForgeError, DEFAULT_MAX_FILE_SIZE, read_source_snapshot
 
 
 def detect_project(repo: Path) -> list[str]:
@@ -11,7 +11,8 @@ def detect_project(repo: Path) -> list[str]:
 
     if package_json.exists():
         try:
-            data = json.loads(read_file(package_json))
+            snapshot = read_source_snapshot(repo, Path("package.json"), DEFAULT_MAX_FILE_SIZE)
+            data = json.loads(snapshot.decode(errors="ignore"))
             deps = {}
             deps.update(data.get("dependencies", {}))
             deps.update(data.get("devDependencies", {}))
@@ -46,6 +47,8 @@ def detect_project(repo: Path) -> list[str]:
             if scripts:
                 found.append("Scripts: " + ", ".join(scripts.keys()))
 
+        except ContextForgeError:
+            raise
         except Exception:
             pass
 

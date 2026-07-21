@@ -14,6 +14,7 @@ from .search import search_repo
 from .search import structured_search
 from .intelligence import (
     build_index,
+    ContextForgeError,
     dumps,
     envelope,
     find_references,
@@ -54,6 +55,25 @@ HELP_TEXT = """Examples:
   cf trace register
   cf brief --format json
   cf doctor"""
+
+
+class JSONArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str):
+        arguments = sys.argv[1:]
+        json_requested = "--format=json" in arguments or any(
+            argument == "--format" and index + 1 < len(arguments) and arguments[index + 1] == "json"
+            for index, argument in enumerate(arguments)
+        )
+        if json_requested:
+            command = arguments[0] if arguments and not arguments[0].startswith("-") else "unknown"
+            failure = {
+                "code": "invalid_arguments",
+                "message": message,
+                "details": {},
+            }
+            print(dumps(envelope(command, repo_root(), error=failure)))
+            raise SystemExit(2)
+        super().error(message)
 
 
 def print_header(text: str):
@@ -209,7 +229,15 @@ def cmd_version(_args):
 
 def cmd_index(args):
     repo = repo_root()
-    result = envelope("index", repo, **build_index(repo))
+    result = envelope(
+        "index",
+        repo,
+        **build_index(
+            repo,
+            max_file_size=args.max_file_size,
+            max_repository_size=args.max_repository_size,
+        ),
+    )
     if args.format == "json":
         print(dumps(result))
         return
@@ -338,7 +366,7 @@ def cmd_doctor(_args):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = JSONArgumentParser(
         prog="cf",
         description="ContextForge - AI-first repository exploration for coding assistants.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -389,6 +417,8 @@ def build_parser() -> argparse.ArgumentParser:
     feature.set_defaults(func=cmd_feature)
 
     index = add_format(subcommands.add_parser("index", help="Build or refresh the incremental repository index"))
+    index.add_argument("--max-file-size", type=int, default=None, metavar="BYTES")
+    index.add_argument("--max-repository-size", type=int, default=None, metavar="BYTES")
     index.set_defaults(func=cmd_index)
 
     symbol = add_format(subcommands.add_parser("symbol", help="Find symbol definitions"))
@@ -414,7 +444,24 @@ def build_parser() -> argparse.ArgumentParser:
 def main():
     parser = build_parser()
     args = parser.parse_args()
-    return args.func(args) or 0
+    try:
+        return args.func(args) or 0
+    except ContextForgeError as exc:
+        if getattr(args, "format", "text") == "json":
+            print(dumps(envelope(args.command, repo_root(), error=exc.as_dict())))
+        else:
+            print(f"ContextForge error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        if getattr(args, "format", "text") == "json":
+            failure = {
+                "code": "internal_error",
+                "message": str(exc) or exc.__class__.__name__,
+                "details": {"type": exc.__class__.__name__},
+            }
+            print(dumps(envelope(args.command, repo_root(), error=failure)))
+            return 1
+        raise
 
 
 def _git_root() -> Path | None:
