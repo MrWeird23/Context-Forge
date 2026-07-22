@@ -17,6 +17,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
+    "Operating System :: POSIX",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -30,13 +31,22 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = [
+    "jsonschema>=4.20",
+    "pytest>=8",
+]
 
 [project.scripts]
 cf = "contextforge.cli:main"
 
+[project.urls]
+Source = "https://github.com/MrWeird23/Context-Forge"
+
 [tool.setuptools]
 packages = ["contextforge"]
+
+[tool.setuptools.data-files]
+"share/contextforge" = ["docs/json-schema-1.0.json"]
 
 [tool.setuptools.dynamic]
 version = { attr = "contextforge.__version__" }

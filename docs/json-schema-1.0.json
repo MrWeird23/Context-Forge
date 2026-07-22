@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contextforge.dev/schemas/json-output-1.0.json",
+  "title": "ContextForge JSON output 1.0",
+  "description": "Stable envelope shared by successful command results and structured failures.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command",
+    "repository"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1
+    },
+    "error": {
+      "$ref": "#/$defs/error"
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

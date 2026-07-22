@@ -64,13 +64,6 @@ def repo_root() -> Path:
     return Path(result.stdout.strip()).resolve()
 
 
-def read_file(path: Path) -> str:
-    try:
-        return path.read_text(errors="ignore")
-    except Exception:
-        return ""
-
-
 def iter_code_files(repo: Path) -> Iterator[Path]:
     resolved_repo = repo.resolve()
     for current_root, dirs, filenames in os.walk(repo):
