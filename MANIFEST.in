@@ -1,0 +1,5 @@
+include CHANGELOG.md
+include README.md
+include docs/benchmarks-0.3.0.md
+include docs/json-schema-1.0.json
+recursive-include benchmarks *.py

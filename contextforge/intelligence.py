@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import hashlib
 import json
 import os
@@ -10,22 +9,33 @@ import stat
 import sys
 import tempfile
 from collections import defaultdict, deque
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
+from .analyzers import (
+    Relationship,
+    Reference,
+    Repository,
+    SourceFile,
+    Symbol,
+    analyzer_for_path,
+    analyzer_registry,
+)
 from .ranking import classify_file
 from .scanner import iter_code_files
 
 SCHEMA_VERSION = "1.0"
 INDEX_NAME = "index.sqlite"
-INDEX_SCHEMA_VERSION = 1
+INDEX_SCHEMA_VERSION = 2
 INDEX_USER_VERSION_SQL = f"PRAGMA user_version = {INDEX_SCHEMA_VERSION}"
+ANALYZER_FINGERPRINT = "python-ast-1|javascript-tree-sitter-1|typescript-tree-sitter-1|generic-lexical-1"
 DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024
 DEFAULT_MAX_REPOSITORY_SIZE = 1024 * 1024 * 1024
 
 EXPECTED_TABLE_COLUMNS = {
+    "metadata": (("key", "TEXT", 0, 1), ("value", "TEXT", 1, 0)),
     "files": (("path", "TEXT", 0, 1), ("digest", "TEXT", 1, 0), ("category", "TEXT", 1, 0)),
     "symbols": (
         ("name", "TEXT", 1, 0),
@@ -43,6 +53,14 @@ EXPECTED_TABLE_COLUMNS = {
         ("context", "TEXT", 1, 0),
         ("caller", "TEXT", 0, 0),
     ),
+    "relationships": (
+        ("source", "TEXT", 1, 0),
+        ("target", "TEXT", 1, 0),
+        ("kind", "TEXT", 1, 0),
+        ("path", "TEXT", 1, 0),
+        ("line", "INTEGER", 1, 0),
+        ("confidence", "TEXT", 1, 0),
+    ),
 }
 TABLE_INFO_SQL = {
     name: f"PRAGMA table_xinfo({name})" for name in EXPECTED_TABLE_COLUMNS
@@ -50,6 +68,8 @@ TABLE_INFO_SQL = {
 EXPECTED_INDEX_COLUMNS = {
     "symbols_name": ("symbols", ("name",)),
     "refs_name": ("refs", ("name",)),
+    "relationships_source": ("relationships", ("source",)),
+    "relationships_target": ("relationships", ("target",)),
 }
 INDEX_LIST_SQL = {
     table: f"PRAGMA index_list({table})" for table in EXPECTED_TABLE_COLUMNS
@@ -61,6 +81,10 @@ FILES_PRIMARY_KEY_XINFO_SQL = "PRAGMA index_xinfo(sqlite_autoindex_files_1)"
 SCHEMA_INVENTORY_SQL = "SELECT type, name, tbl_name, sql FROM sqlite_schema"
 
 INDEX_SCHEMA = """
+CREATE TABLE metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE files (
     path TEXT PRIMARY KEY,
     digest TEXT NOT NULL,
@@ -84,6 +108,16 @@ CREATE TABLE refs (
     caller TEXT
 );
 CREATE INDEX refs_name ON refs(name);
+CREATE TABLE relationships (
+    source TEXT NOT NULL,
+    target TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    path TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    confidence TEXT NOT NULL
+);
+CREATE INDEX relationships_source ON relationships(source);
+CREATE INDEX relationships_target ON relationships(target);
 """
 
 
@@ -97,26 +131,6 @@ def _expected_schema_objects() -> frozenset[tuple[str, str, str, str | None]]:
         )
     finally:
         connection.close()
-
-
-@dataclass(frozen=True)
-class Symbol:
-    name: str
-    kind: str
-    path: str
-    line: int
-    end_line: int
-    parent: str | None = None
-    signature: str | None = None
-
-
-@dataclass(frozen=True)
-class Reference:
-    name: str
-    path: str
-    line: int
-    context: str
-    caller: str | None = None
 
 
 class ContextForgeError(RuntimeError):
@@ -276,6 +290,10 @@ def _initialize_database(database: Path) -> None:
     try:
         connection.executescript(INDEX_SCHEMA)
         connection.execute(INDEX_USER_VERSION_SQL)
+        connection.execute(
+            "INSERT INTO metadata(key, value) VALUES ('analyzer_fingerprint', ?)",
+            (ANALYZER_FINGERPRINT,),
+        )
         connection.commit()
     finally:
         connection.close()
@@ -386,6 +404,11 @@ def _database_is_compatible(connection: sqlite3.Connection) -> bool:
     )
     if schema_objects != _expected_schema_objects():
         return False
+    fingerprint_rows = tuple(
+        connection.execute("SELECT key, value FROM metadata ORDER BY key")
+    )
+    if fingerprint_rows != (("analyzer_fingerprint", ANALYZER_FINGERPRINT),):
+        return False
     for table, expected in EXPECTED_TABLE_COLUMNS.items():
         columns = tuple(connection.execute(TABLE_INFO_SQL[table]))
         actual = tuple(
@@ -481,96 +504,26 @@ def _connect(repo: Path) -> tuple[sqlite3.Connection, tuple[int, int]]:
         raise
 
 
-def _source_line(lines: list[str], line: int) -> str:
-    return lines[line - 1].strip()[:240] if 0 < line <= len(lines) else ""
-
-
-def _python_entities(path: str, content: str) -> tuple[list[Symbol], list[Reference]]:
-    try:
-        tree = ast.parse(content)
-    except SyntaxError:
-        return [], []
-    lines = content.splitlines()
-    symbols: list[Symbol] = []
-    references: list[Reference] = []
-    scope: list[str] = []
-
-    class Visitor(ast.NodeVisitor):
-        def _signature(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
-            try:
-                return ast.unparse(node.args)
-            except Exception:
-                return ""
-
-        def visit_ClassDef(self, node: ast.ClassDef):
-            symbols.append(Symbol(node.name, "class", path, node.lineno, getattr(node, "end_lineno", node.lineno), scope[-1] if scope else None))
-            scope.append(node.name)
-            self.generic_visit(node)
-            scope.pop()
-
-        def visit_FunctionDef(self, node: ast.FunctionDef):
-            kind = "method" if scope else "function"
-            symbols.append(Symbol(node.name, kind, path, node.lineno, getattr(node, "end_lineno", node.lineno), scope[-1] if scope else None, self._signature(node)))
-            scope.append(node.name)
-            self.generic_visit(node)
-            scope.pop()
-
-        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
-            kind = "method" if scope else "function"
-            symbols.append(Symbol(node.name, kind, path, node.lineno, getattr(node, "end_lineno", node.lineno), scope[-1] if scope else None, self._signature(node)))
-            scope.append(node.name)
-            self.generic_visit(node)
-            scope.pop()
-
-        def visit_Call(self, node: ast.Call):
-            if isinstance(node.func, ast.Name):
-                name = node.func.id
-            elif isinstance(node.func, ast.Attribute):
-                name = node.func.attr
-            else:
-                name = None
-            if name:
-                references.append(Reference(name, path, node.lineno, _source_line(lines, node.lineno), scope[-1] if scope else None))
-            self.generic_visit(node)
-
-        def visit_ImportFrom(self, node: ast.ImportFrom):
-            for alias in node.names:
-                references.append(Reference(alias.name, path, node.lineno, _source_line(lines, node.lineno), scope[-1] if scope else None))
-
-    Visitor().visit(tree)
-    return symbols, references
-
-
-def _generic_entities(path: str, content: str) -> tuple[list[Symbol], list[Reference]]:
-    symbols: list[Symbol] = []
-    references: list[Reference] = []
-    lines = content.splitlines()
-    definition_patterns = [
-        ("class", re.compile(r"\bclass\s+([A-Za-z_$][\w$]*)")),
-        ("function", re.compile(r"\b(?:function|def|fn)\s+([A-Za-z_$][\w$]*)\s*\(")),
-        ("function", re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>")),
-    ]
-    call_pattern = re.compile(r"\b([A-Za-z_$][\w$]*)\s*\(")
-    keywords = {"if", "for", "while", "switch", "catch", "return", "function", "def", "class"}
-    for number, line in enumerate(lines, 1):
-        defined: set[str] = set()
-        for kind, pattern in definition_patterns:
-            match = pattern.search(line)
-            if match:
-                name = match.group(1)
-                defined.add(name)
-                symbols.append(Symbol(name, kind, path, number, number, signature=line.strip()[:240]))
-        for match in call_pattern.finditer(line):
-            name = match.group(1)
-            if name not in keywords and name not in defined:
-                references.append(Reference(name, path, number, line.strip()[:240]))
-    return symbols, references
-
-
 def extract_entities(path: str, content: str) -> tuple[list[Symbol], list[Reference]]:
-    if Path(path).suffix == ".py":
-        return _python_entities(path, content)
-    return _generic_entities(path, content)
+    source_file = SourceFile(path, content)
+    analyzer = analyzer_for_path(Path(path))
+    return (
+        analyzer.extract_symbols(source_file),
+        analyzer.extract_references(source_file),
+    )
+
+
+def extract_analysis(
+    path: str,
+    content: str | bytes,
+) -> tuple[list[Symbol], list[Reference], list[Relationship]]:
+    source_file = SourceFile(path, content)
+    analyzer = analyzer_for_path(Path(path))
+    return (
+        analyzer.extract_symbols(source_file),
+        analyzer.extract_references(source_file),
+        analyzer.extract_relationships(source_file),
+    )
 
 
 def _configured_limit(explicit: int | None, environment: str, default: int) -> int:
@@ -653,10 +606,10 @@ def build_index(
             if existing.get(relative) == digest:
                 unchanged += 1
                 continue
-            content = snapshot.decode(errors="ignore")
-            symbols, references = extract_entities(relative, content)
+            symbols, references, relationships = extract_analysis(relative, snapshot)
             connection.execute("DELETE FROM symbols WHERE path = ?", (relative,))
             connection.execute("DELETE FROM refs WHERE path = ?", (relative,))
+            connection.execute("DELETE FROM relationships WHERE path = ?", (relative,))
             connection.execute(
                 "INSERT OR REPLACE INTO files(path, digest, category) VALUES (?, ?, ?)",
                 (relative, digest, classify_file(Path(relative))),
@@ -669,21 +622,29 @@ def build_index(
                 "INSERT INTO refs(name, path, line, context, caller) VALUES (:name, :path, :line, :context, :caller)",
                 [asdict(item) for item in references],
             )
+            connection.executemany(
+                "INSERT INTO relationships(source, target, kind, path, line, confidence) VALUES (:source, :target, :kind, :path, :line, :confidence)",
+                [asdict(item) for item in relationships],
+            )
             indexed += 1
         stale = set(existing) - set(files)
         for relative in stale:
             connection.execute("DELETE FROM files WHERE path = ?", (relative,))
             connection.execute("DELETE FROM symbols WHERE path = ?", (relative,))
             connection.execute("DELETE FROM refs WHERE path = ?", (relative,))
+            connection.execute("DELETE FROM relationships WHERE path = ?", (relative,))
             removed += 1
         _assert_database_identity(index_path(repo), database_identity)
         connection.commit()
         _assert_database_identity(index_path(repo), database_identity)
         symbol_count = connection.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]
         reference_count = connection.execute("SELECT COUNT(*) FROM refs").fetchone()[0]
+        relationship_count = connection.execute(
+            "SELECT COUNT(*) FROM relationships"
+        ).fetchone()[0]
     finally:
         connection.close()
-    return {"indexed": indexed, "unchanged": unchanged, "removed": removed, "total_files": len(files), "symbols": symbol_count, "references": reference_count}
+    return {"indexed": indexed, "unchanged": unchanged, "removed": removed, "total_files": len(files), "symbols": symbol_count, "references": reference_count, "relationships": relationship_count}
 
 
 def find_symbols(repo: Path, name: str) -> list[dict]:
@@ -712,6 +673,33 @@ def find_references(repo: Path, name: str) -> list[dict]:
         connection.close()
 
 
+def find_relationships(
+    repo: Path,
+    *,
+    source: str | None = None,
+    target: str | None = None,
+    kind: str | None = None,
+) -> list[dict]:
+    build_index(repo)
+    connection, _database_identity_value = _connect(repo)
+    clauses: list[str] = []
+    parameters: list[str] = []
+    for column, value in (("source", source), ("target", target), ("kind", kind)):
+        if value is not None:
+            clauses.append(f"lower({column}) = lower(?)")
+            parameters.append(value)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    try:
+        rows = connection.execute(
+            "SELECT source, target, kind, path, line, confidence "
+            f"FROM relationships{where} ORDER BY path, line, kind, source, target",
+            parameters,
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        connection.close()
+
+
 def trace_symbol(repo: Path, name: str, max_depth: int = 6) -> tuple[list[dict], list[dict]]:
     build_index(repo)
     connection, _database_identity_value = _connect(repo)
@@ -733,23 +721,28 @@ def trace_symbol(repo: Path, name: str, max_depth: int = 6) -> tuple[list[dict],
                 node = dict(row)
                 nodes[(node["name"], node["path"], node["line"])] = node
                 calls = connection.execute(
-                    "SELECT DISTINCT r.name FROM refs r JOIN symbols s ON r.path=s.path AND r.caller=s.name WHERE s.path=? AND s.name=? AND r.line BETWEEN s.line AND s.end_line",
-                    (node["path"], node["name"]),
+                    "SELECT DISTINCT target AS name FROM relationships "
+                    "WHERE path=? AND source=? AND kind='calls' AND line BETWEEN ? AND ?",
+                    (node["path"], node["name"], node["line"], node["end_line"]),
                 ).fetchall()
                 for call in calls:
                     target = call["name"]
                     if connection.execute("SELECT 1 FROM symbols WHERE lower(name)=lower(?) LIMIT 1", (target,)).fetchone():
-                        edges.append({"from": node["name"], "to": target, "path": node["path"]})
+                        edges.append(
+                            {
+                                "from": node["name"],
+                                "to": target,
+                                "path": node["path"],
+                                "from_line": node["line"],
+                            }
+                        )
                         queue.append((target, depth + 1))
     finally:
         connection.close()
     return list(nodes.values()), edges
 
 
-def read_pyproject(repo: Path) -> dict:
-    path = repo / "pyproject.toml"
-    if not path.exists():
-        return {}
+def parse_pyproject_snapshot(snapshot: bytes) -> dict:
     try:
         try:
             import tomllib
@@ -757,27 +750,75 @@ def read_pyproject(repo: Path) -> dict:
             from importlib import import_module
 
             tomllib = import_module("tomli")
-
-        file_limit = _configured_limit(
-            None, "CONTEXTFORGE_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE
-        )
-        snapshot = read_source_snapshot(repo, Path("pyproject.toml"), file_limit)
-        return tomllib.loads(snapshot.decode(errors="ignore"))
-    except ContextForgeError:
-        raise
+        document = tomllib.loads(snapshot.decode("utf-8", errors="replace"))
+        return document if isinstance(document, dict) else {}
     except Exception:
         return {}
 
 
+def read_pyproject(repo: Path) -> dict:
+    path = repo / "pyproject.toml"
+    if not path.exists():
+        return {}
+    file_limit = _configured_limit(
+        None, "CONTEXTFORGE_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE
+    )
+    snapshot = read_source_snapshot(repo, Path("pyproject.toml"), file_limit)
+    return parse_pyproject_snapshot(snapshot)
+
+
+def analyzer_repository(repo: Path) -> Repository:
+    file_limit = _configured_limit(
+        None, "CONTEXTFORGE_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE
+    )
+    manifests: dict[str, SourceFile] = {}
+    for name in (
+        "pyproject.toml",
+        "setup.py",
+        "requirements.txt",
+        "package.json",
+        "tsconfig.json",
+    ):
+        if (repo / name).exists():
+            snapshot = read_source_snapshot(repo, Path(name), file_limit)
+            manifests[name] = SourceFile(name, snapshot)
+    paths = tuple(
+        sorted(str(path.relative_to(repo)) for path in iter_code_files(repo))
+    )
+    return Repository(repo, manifests, paths)
+
+
 def repository_brief(repo: Path, detections: Iterable[str], architecture: dict[str, list[str]]) -> dict:
     stats = build_index(repo)
-    connection, _database_identity_value = _connect(repo)
-    project = read_pyproject(repo).get("project", {})
-    scripts = project.get("scripts", {}) if isinstance(project, dict) else {}
+    repository = analyzer_repository(repo)
+    analyzer_results = [
+        result
+        for analyzer in analyzer_registry()
+        if (result := analyzer.detect(repository)).detected
+    ]
+    pyproject = repository.manifest("pyproject.toml")
+    project = (
+        parse_pyproject_snapshot(pyproject.snapshot).get("project", {})
+        if pyproject
+        else {}
+    )
+    discovered_entry_points = [
+        item
+        for analyzer in analyzer_registry()
+        for item in analyzer.discover_entry_points(repository)
+    ]
     entry_points = []
-    for command, target in scripts.items():
-        module, _, symbol = str(target).partition(":")
-        entry_points.append({"command": command, "target": target, "module": module, "symbol": symbol})
+    for item in discovered_entry_points:
+        module, _, symbol = item.target.partition(":")
+        entry_points.append(
+            {
+                "command": item.name,
+                "target": item.target,
+                "module": module,
+                "symbol": symbol,
+            }
+        )
+    connection, _database_identity_value = _connect(repo)
     try:
         largest = connection.execute(
             "SELECT path, COUNT(*) AS count FROM symbols GROUP BY path ORDER BY count DESC, path LIMIT 10"
@@ -789,9 +830,18 @@ def repository_brief(repo: Path, detections: Iterable[str], architecture: dict[s
         "name": project.get("name") if isinstance(project, dict) else None,
         "description": project.get("description") if isinstance(project, dict) else None,
         "detections": list(detections),
+        "analyzers": [
+            {
+                "name": result.analyzer,
+                "confidence": result.confidence,
+                "evidence": list(result.evidence),
+            }
+            for result in analyzer_results
+        ],
         "entry_points": entry_points,
         "architecture": architecture,
         "symbols": {"total": stats["symbols"], "references": stats["references"]},
+        "relationships": stats["relationships"],
         "evidence": evidence,
         "confidence": "high" if stats["symbols"] else "low",
     }

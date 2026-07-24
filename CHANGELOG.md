@@ -1,3 +1,31 @@
+## 0.3.0
+
+### Analyzer architecture
+
+- Add a stable analyzer protocol with shared source, repository, symbol, reference, relationship, detection, and entry-point models.
+- Move Python AST extraction out of the central indexer into a dedicated Python analyzer.
+- Add a conservative lexical fallback for unsupported languages and malformed native syntax trees.
+
+### JavaScript and TypeScript
+
+- Add Tree-sitter analyzers for JavaScript, JSX, ESM/CJS variants, TypeScript, TSX, MTS, and CTS.
+- Extract classes, interfaces, functions, arrow functions, methods, calls, and constructor calls from native syntax trees.
+- Preserve exact bounded source bytes through digesting and Tree-sitter parsing.
+
+### Relationships and detection
+
+- Index imports, exports, calls, and inheritance with source-line evidence and confidence.
+- Upgrade the canonical SQLite index to schema version 2 with relationship indexes and atomic rebuilding.
+- Add an analyzer fingerprint so semantic changes invalidate digest-equal incremental indexes safely.
+- Discover Python and Node entry points from bounded manifest snapshots without importing or executing repository code.
+- Add analyzer evidence and relationship totals to repository briefings while preserving JSON schema 1.0 payload compatibility.
+- Drive static tracing from indexed call relationships.
+
+### Testing and performance
+
+- Add unit and end-to-end coverage for analyzer selection, native extraction, malformed-tree fallback, exact-byte parsing, relationship persistence, fingerprint invalidation, safe manifest analysis, and JSON compatibility.
+- Record mixed Python, JavaScript, and TypeScript indexing measurements in `docs/benchmarks-0.3.0.md`.
+
 ## 0.2.1
 
 ### Security

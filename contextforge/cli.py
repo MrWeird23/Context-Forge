@@ -242,7 +242,15 @@ def cmd_index(args):
         print(dumps(result))
         return
     print_header("ContextForge — Index")
-    for key in ("indexed", "unchanged", "removed", "total_files", "symbols", "references"):
+    for key in (
+        "indexed",
+        "unchanged",
+        "removed",
+        "total_files",
+        "symbols",
+        "references",
+        "relationships",
+    ):
         console.print(f"{key.replace('_', ' ').title()}: {result[key]}")
 
 
