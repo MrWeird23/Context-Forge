@@ -32,8 +32,12 @@ IGNORE_DIRS = {
 CODE_EXTENSIONS = {
     ".ts",
     ".tsx",
+    ".mts",
+    ".cts",
     ".js",
     ".jsx",
+    ".mjs",
+    ".cjs",
     ".py",
     ".go",
     ".rs",

@@ -1,6 +1,6 @@
 # ContextForge
 
-ContextForge is an AI-first repository exploration CLI. It combines fast lexical search with an incremental symbol/reference index so humans and coding assistants can establish architectural context before editing code.
+ContextForge is an AI-first repository exploration CLI. It combines fast lexical search with an incremental symbol, reference, and relationship index so humans and coding assistants can establish architectural context before editing code.
 
 ## Install
 
@@ -10,7 +10,7 @@ pipx install .
 python -m pip install -e '.[dev]'
 ```
 
-Python 3.10 or newer is required. Secure source analysis in 0.2.1 requires POSIX descriptor-relative file access with `O_DIRECTORY` and `O_NOFOLLOW`. ContextForge fails closed with a structured `unsafe_source_access` error when those primitives are unavailable rather than silently following untrusted paths.
+Python 3.10 or newer is required. Secure source analysis requires POSIX descriptor-relative file access with `O_DIRECTORY` and `O_NOFOLLOW`. ContextForge fails closed with a structured `unsafe_source_access` error when those primitives are unavailable rather than silently following untrusted paths.
 
 ## Quick start
 
@@ -41,7 +41,7 @@ cf index --format json
 
 Indexes are stored outside the repository and keyed by a SHA-256 identity derived from the canonical repository path. The default cache roots are `~/Library/Caches/contextforge` on macOS and `$XDG_CACHE_HOME/contextforge` (or `~/.cache/contextforge`) on other supported POSIX systems. Set `CONTEXTFORGE_CACHE_DIR` to choose another root.
 
-Each source file is opened without following symlinks and read into one bounded byte snapshot. ContextForge derives both the SHA-256 digest and parsed content from that snapshot, then verifies file identity, size, modification time, and change time around the read. Unchanged files are not reparsed and deleted files are removed. SQLite compatibility checks compare the complete stored schema definitions with a trusted schema generated from the current `INDEX_SCHEMA`, then verify `user_version`, integrity, columns, hidden-column state, and index semantics. This rejects unexpected objects, constraints, defaults, collations, and storage options. Incompatible indexes are rebuilt through atomic replacement after active WAL or rollback-journal writers are excluded and stale sidecars are cleared. Database device and inode identity are verified across open and commit boundaries. Generated, dependency, cache, and virtual-environment directories remain excluded.
+Each source file is opened without following symlinks and read into one bounded byte snapshot. ContextForge derives the SHA-256 digest and every analyzer result from those same bytes, then verifies file identity, size, modification time, and change time around the read. Unchanged files are not reparsed and deleted files are removed. SQLite compatibility checks compare the complete stored schema definitions with a trusted schema generated from the current `INDEX_SCHEMA`, then verify `user_version`, analyzer fingerprint, integrity, columns, hidden-column state, and index semantics. This rejects stale analyzer results, unexpected objects, constraints, defaults, collations, and storage options. Incompatible indexes are rebuilt through atomic replacement after active WAL or rollback-journal writers are excluded and stale sidecars are cleared. Database device and inode identity are verified across open and commit boundaries. Generated, dependency, cache, and virtual-environment directories remain excluded.
 
 The indexer defaults to 10 MiB per file and 1 GiB of supported source content per repository. Limits can be adjusted for a single explicit index operation:
 
@@ -53,7 +53,9 @@ They can also be configured for explicit and implicit indexing with `CONTEXTFORG
 
 The filesystem protections defend against repository-controlled paths, symlinked cache ancestors, cache redirection, and replacement during source reads. They do not attempt to isolate ContextForge from another process already executing as the same operating-system user; such a process has equivalent access to the user's cache directory.
 
-Python symbols and call references are extracted using the standard-library AST. Other supported source extensions receive conservative class/function/call extraction. This provides useful cross-language navigation without requiring a parser toolchain; framework-aware and Tree-sitter analyzers remain suitable future extensions.
+Python analysis uses the standard-library AST. JavaScript, JSX, ESM/CJS variants, TypeScript, TSX, MTS, and CTS use bundled Tree-sitter grammars. These analyzers extract symbols, references, imports, exports, calls, and inheritance from native syntax trees. Files in other supported languages receive conservative lexical class/function/call extraction. A malformed Tree-sitter syntax tree falls back to lexical symbols and references and does not emit structural relationships.
+
+Analyzer project detection and entry-point discovery operate on bounded manifest snapshots supplied by the core. ContextForge does not import `setup.py`, execute package scripts, or load repository code during discovery.
 
 ### Symbols and references
 
@@ -72,7 +74,7 @@ cf trace register
 cf trace register --max-depth 10 --format json
 ```
 
-`trace` follows statically resolvable calls between indexed symbols. The result is evidence, not a claim that every dynamic runtime path has been discovered. Reflection, decorators, dependency-injection containers, callbacks, and dynamic dispatch may require framework-specific analyzers.
+`trace` follows statically resolvable indexed call relationships between symbols. The result is evidence, not a claim that every dynamic runtime path has been discovered. Reflection, decorators, dependency-injection containers, callbacks, and dynamic dispatch may require framework-specific analyzers.
 
 ### Evidence-backed briefing
 
@@ -81,7 +83,7 @@ cf brief
 cf brief --format json
 ```
 
-The briefing includes project detection, package entry points, architecture buckets, symbol/reference totals, evidence, and a confidence label.
+The briefing includes project detection, analyzer evidence, safely discovered package entry points, architecture buckets, symbol/reference/relationship totals, evidence, and a confidence label. Existing JSON 1.0 detection and entry-point fields remain compatible.
 
 ## Explainable search
 
@@ -138,4 +140,10 @@ When JSON output is requested, command, configuration, resource-limit, cache-saf
 python -m pytest -q
 ```
 
-The acceptance tests exercise JSON schema validation, incremental indexing, bounded single-snapshot reads, source and cache replacement attacks, schema rebuilding, structured failures, symbol/reference navigation, static tracing, and repository briefing against temporary repositories.
+The acceptance tests exercise JSON schema validation, incremental indexing, bounded single-snapshot reads, source and cache replacement attacks, schema rebuilding, structured failures, Python and Tree-sitter analyzers, relationship persistence, analyzer fingerprint invalidation, symbol/reference navigation, static tracing, and repository briefing against temporary repositories.
+
+Release benchmark methodology and mixed-language results are documented in [`docs/benchmarks-0.3.0.md`](docs/benchmarks-0.3.0.md).
+
+## License
+
+ContextForge is available under the [MIT License](LICENSE).
