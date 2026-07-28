@@ -1,0 +1,243 @@
+# ContextForge Roadmap
+
+ContextForge is evolving from repository search into evidence-backed repository intelligence for humans and coding assistants.
+
+> ContextForge should not merely find files. It should reconstruct how a repository works, show the evidence behind that reconstruction, and state clearly where certainty ends.
+
+This roadmap describes the intended direction of the project. Priorities may change as implementation findings, security reviews, and user feedback reveal a better sequence.
+
+## Status
+
+| Release | Focus | Status |
+|---|---|---|
+| **0.2.1** | Index hardening, schema migration, and structured errors | Complete |
+| **0.3.0** | Analyzer architecture and JavaScript/TypeScript Tree-sitter support | Complete |
+| **0.4.0** | Framework-aware entities and improved tracing | Next |
+| **0.5.0** | Task-oriented investigation reports | Planned |
+| **0.6.0** | Git history, coupling, hotspots, and ownership | Planned |
+| **0.7.0** | Markdown, Mermaid, and Graphviz exports | Planned |
+| **0.8.0** | Evidence and confidence standards | Planned |
+| **0.9.0** | Public plugin API and compatibility testing | Planned |
+| **1.0.0** | Stable schemas, plugin protocol, and compatibility guarantees | Planned |
+
+## Completed foundations
+
+### 0.2.1 — Harden the indexing foundation
+
+ContextForge established a secure and coherent indexing base:
+
+- Read source files through bounded, race-resistant snapshots.
+- Derive indexed content and its digest from the same bytes.
+- Reject source and cache redirection through unsafe filesystem paths.
+- Store caches outside untrusted repositories by default.
+- Key caches by canonical repository identity.
+- Validate SQLite schema versions and definitions.
+- Rebuild incompatible indexes through atomic replacement.
+- Return structured failures for JSON output.
+- Enforce configurable per-file and per-repository resource limits.
+- Exercise source and cache boundaries with adversarial tests.
+
+### 0.3.0 — Introduce the analyzer architecture
+
+ContextForge moved language-specific analysis behind a stable analyzer protocol:
+
+- Extract Python entities with the standard-library AST.
+- Parse JavaScript, JSX, TypeScript, TSX, MTS, and CTS with Tree-sitter.
+- Fall back conservatively when native syntax analysis is unavailable or malformed.
+- Index symbols, references, imports, exports, calls, and inheritance.
+- Invalidate incremental indexes when analyzer semantics change.
+- Discover Python and Node entry points without executing repository code.
+- Trace statically resolvable call relationships.
+- Produce evidence-backed repository briefings.
+- Preserve the public JSON `1.0` contract.
+- Benchmark mixed-language indexing.
+
+## Next release
+
+### 0.4.0 — Framework-aware analysis and stronger tracing
+
+The next release should move ContextForge from language awareness to framework awareness. Framework analyzers should identify architectural entities from syntax, registrations, and configuration instead of relying primarily on filenames and directories.
+
+#### Initial framework targets
+
+**Python**
+
+- FastAPI
+- Flask
+- Django
+- SQLAlchemy
+- Celery
+
+**JavaScript and TypeScript**
+
+- Express
+- NestJS
+- React
+- Next.js
+- Angular
+- Prisma
+- TypeORM
+
+#### Entities to identify
+
+- Routes and request handlers
+- Controllers
+- Middleware and authorization guards
+- Services
+- Components and hooks
+- Models and schemas
+- Repositories and database migrations
+- Background jobs
+- Events and consumers
+- Relevant tests
+
+#### Tracing improvements
+
+- Resolve imported and exported symbols across files.
+- Connect method calls to candidate class definitions.
+- Detect inheritance and interface implementations more precisely.
+- Follow route-to-handler relationships.
+- Follow handler-to-service relationships.
+- Follow service-to-repository relationships.
+- Detect middleware and authorization boundaries.
+- Connect emitted events to consumers.
+- Connect background jobs to their registration points.
+- Report unresolved dynamic edges explicitly.
+
+Potential commands include:
+
+```bash
+cf routes
+cf services
+cf models
+cf jobs
+cf trace "POST /users"
+cf trace UserService.create
+cf trace src/routes/users.py:42
+```
+
+## Planned releases
+
+### 0.5.0 — Task-oriented investigation
+
+Add reports designed around real development work:
+
+```bash
+cf investigate "How does password reset work?"
+cf impact "Rename User.email to User.primaryEmail"
+cf change "Add rate limiting to password reset"
+cf debug "Orders remain pending after payment succeeds"
+```
+
+Reports should combine:
+
+- Relevant execution paths
+- Definitions and references
+- Data models and configuration
+- Existing implementation patterns
+- Tests to add or update
+- Risks and invariants
+- Ranked hypotheses where appropriate
+- Observed facts, inferences, confidence, and unresolved questions
+
+### 0.6.0 — Git intelligence
+
+Use repository history to reveal relationships that are not explicit in the current source tree:
+
+```bash
+cf hotspots
+cf coupling
+cf owners src/payments
+cf history authentication
+```
+
+Planned capabilities:
+
+- Identify frequently changed files.
+- Find files commonly changed together.
+- Estimate module ownership.
+- Detect historical renames.
+- Find concentrations of bug-fix activity.
+- Distinguish stable and volatile modules.
+- Connect symbols and features to relevant commits.
+- Summarize recent architectural changes.
+
+### 0.7.0 — Architecture exports
+
+Produce artifacts suitable for documentation, CI, pull requests, and other coding assistants:
+
+- Human-readable terminal output
+- JSON
+- Markdown
+- Mermaid
+- Graphviz DOT
+
+Potential commands include:
+
+```bash
+cf architecture --format mermaid
+cf trace register --format mermaid
+cf brief --format markdown
+```
+
+### 0.8.0 — Evidence and confidence standards
+
+Standardize every generated claim around:
+
+- Claim
+- Status: observed or inferred
+- Confidence
+- Supporting evidence
+- Conflicting evidence
+- Unresolved uncertainty
+
+Confidence should remain explainable:
+
+- **High** — directly observed through definitions or registrations.
+- **Medium** — strongly inferred from connected static evidence.
+- **Low** — plausible but dependent on dynamic behavior.
+- **Unknown** — insufficient evidence.
+
+### 0.9.0 — Public plugin system
+
+Allow contributors to add language, framework, and infrastructure support without modifying the core.
+
+Design requirements:
+
+- Stable, versioned plugin protocol
+- Capability discovery
+- Deterministic analyzer ordering
+- Conflict resolution
+- Failure isolation
+- Plugin-specific diagnostics
+- Compatibility testing
+- Explicit security boundaries for third-party plugins
+
+### 1.0.0 — Stable compatibility contract
+
+The first stable release should provide:
+
+- Stable machine-readable schemas
+- Stable plugin API and protocol
+- Documented compatibility guarantees
+- Documented upgrade and migration policy
+- Security and resource-boundary documentation
+- Release artifact and installation verification
+
+## Definition of done
+
+A roadmap item is not complete until the relevant release satisfies its applicable quality gates:
+
+- New behavior is covered by tests, preferably developed failing-first.
+- The complete test suite passes.
+- Machine-readable output validates against its documented schema.
+- Existing CLI behavior remains compatible unless a breaking change is intentional and documented.
+- Index upgrades are safe and deterministic.
+- Security boundaries have adversarial coverage.
+- Performance is measured when the change can affect indexing or query cost.
+- Documentation includes examples and limitations.
+- Independent review finds no unresolved blocking security or correctness defect.
+
+## Contributing
+
+Roadmap discussion and implementation proposals are welcome through GitHub issues. Substantial features should define their evidence model, compatibility impact, resource limits, and verification strategy before implementation begins.

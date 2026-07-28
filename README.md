@@ -2,6 +2,8 @@
 
 ContextForge is an AI-first repository exploration CLI. It combines fast lexical search with an incremental symbol, reference, and relationship index so humans and coding assistants can establish architectural context before editing code.
 
+See the [project roadmap](ROADMAP.md) for completed foundations, the next release, and the path toward ContextForge 1.0.
+
 ## Install
 
 ```bash
