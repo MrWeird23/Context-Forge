@@ -85,6 +85,7 @@ def test_all_json_commands_validate_against_documented_schema(sample_repo: Path)
         ("symbol", "create_user", "--format", "json"),
         ("refs", "create_user", "--format", "json"),
         ("trace", "register", "--format", "json"),
+        ("routes", "--format", "json"),
         ("brief", "--format", "json"),
         ("index", "--max-file-size", "1", "--format", "json"),
     ]

@@ -8,7 +8,7 @@ import sqlite3
 import stat
 import sys
 import tempfile
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
@@ -23,14 +23,15 @@ from .analyzers import (
     analyzer_for_path,
     analyzer_registry,
 )
+from .frameworks import FrameworkEntity, extract_framework_entities
 from .ranking import classify_file
 from .scanner import iter_code_files
 
 SCHEMA_VERSION = "1.0"
 INDEX_NAME = "index.sqlite"
-INDEX_SCHEMA_VERSION = 2
+INDEX_SCHEMA_VERSION = 3
 INDEX_USER_VERSION_SQL = f"PRAGMA user_version = {INDEX_SCHEMA_VERSION}"
-ANALYZER_FINGERPRINT = "python-ast-1|javascript-tree-sitter-1|typescript-tree-sitter-1|generic-lexical-1"
+ANALYZER_FINGERPRINT = "python-ast-1|javascript-tree-sitter-2|typescript-tree-sitter-2|generic-lexical-1|route-identity-1|fastapi-framework-12|flask-framework-3|django-framework-3|express-framework-9|nestjs-framework-9|sqlalchemy-framework-10|celery-framework-8|react-framework-4|nextjs-framework-9|angular-framework-4|prisma-framework-9|typeorm-framework-3"
 DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024
 DEFAULT_MAX_REPOSITORY_SIZE = 1024 * 1024 * 1024
 
@@ -61,6 +62,17 @@ EXPECTED_TABLE_COLUMNS = {
         ("line", "INTEGER", 1, 0),
         ("confidence", "TEXT", 1, 0),
     ),
+    "framework_entities": (
+        ("framework", "TEXT", 1, 0),
+        ("kind", "TEXT", 1, 0),
+        ("name", "TEXT", 1, 0),
+        ("target", "TEXT", 0, 0),
+        ("path", "TEXT", 1, 0),
+        ("line", "INTEGER", 1, 0),
+        ("end_line", "INTEGER", 1, 0),
+        ("confidence", "TEXT", 1, 0),
+        ("attributes", "TEXT", 1, 0),
+    ),
 }
 TABLE_INFO_SQL = {
     name: f"PRAGMA table_xinfo({name})" for name in EXPECTED_TABLE_COLUMNS
@@ -70,6 +82,8 @@ EXPECTED_INDEX_COLUMNS = {
     "refs_name": ("refs", ("name",)),
     "relationships_source": ("relationships", ("source",)),
     "relationships_target": ("relationships", ("target",)),
+    "framework_entities_kind": ("framework_entities", ("kind",)),
+    "framework_entities_name": ("framework_entities", ("name",)),
 }
 INDEX_LIST_SQL = {
     table: f"PRAGMA index_list({table})" for table in EXPECTED_TABLE_COLUMNS
@@ -118,6 +132,19 @@ CREATE TABLE relationships (
 );
 CREATE INDEX relationships_source ON relationships(source);
 CREATE INDEX relationships_target ON relationships(target);
+CREATE TABLE framework_entities (
+    framework TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    target TEXT,
+    path TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    end_line INTEGER NOT NULL,
+    confidence TEXT NOT NULL,
+    attributes TEXT NOT NULL
+);
+CREATE INDEX framework_entities_kind ON framework_entities(kind);
+CREATE INDEX framework_entities_name ON framework_entities(name);
 """
 
 
@@ -394,6 +421,41 @@ def _rebuild_database(database: Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
+_PUBLIC_CONFIDENCES = frozenset({"high", "medium", "low"})
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _decode_framework_attributes(value: object) -> dict[str, str]:
+    if not isinstance(value, str):
+        raise ValueError("framework attributes must use SQLite TEXT storage")
+    try:
+        decoded = json.loads(
+            value,
+            object_pairs_hook=_unique_json_object,
+            parse_constant=lambda constant: (_ for _ in ()).throw(
+                ValueError(constant)
+            ),
+        )
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise ValueError("invalid framework attributes") from exc
+    if not isinstance(decoded, dict) or any(
+        not isinstance(key, str) or not isinstance(item, str)
+        for key, item in decoded.items()
+    ):
+        raise ValueError("framework attributes must be a string map")
+    if json.dumps(decoded, sort_keys=True) != value:
+        raise ValueError("framework attributes must use canonical JSON")
+    return decoded
+
+
 def _database_is_compatible(connection: sqlite3.Connection) -> bool:
     if connection.execute("PRAGMA user_version").fetchone()[0] != INDEX_SCHEMA_VERSION:
         return False
@@ -455,6 +517,52 @@ def _database_is_compatible(connection: sqlite3.Connection) -> bool:
         expected_keys = tuple((column, 0, "BINARY") for column in expected_columns)
         if key_columns != expected_keys:
             return False
+    expected_handles: Counter[tuple[str, str, int, str, str]] = Counter()
+    for row in connection.execute(
+        "SELECT framework, kind, name, target, path, line, end_line, "
+        "confidence, attributes FROM framework_entities"
+    ):
+        framework, kind, name, target, path, line, end_line, confidence, raw = row
+        if confidence not in _PUBLIC_CONFIDENCES:
+            return False
+        try:
+            attributes = _decode_framework_attributes(raw)
+        except ValueError:
+            return False
+        if kind == "route" and target is not None:
+            identity = _route_registration_identity(
+                framework=framework,
+                kind=kind,
+                name=name,
+                target=target,
+                path=path,
+                line=line,
+                end_line=end_line,
+                confidence=confidence,
+                attributes=attributes,
+            )
+            encoded = f"{confidence}{_ROUTE_IDENTITY_SEPARATOR}{identity}"
+            expected_handles[(name, path, line, target, encoded)] += 1
+    actual_handles: Counter[tuple[str, str, int, str, str]] = Counter()
+    for source, target, kind, path, line, confidence in connection.execute(
+        "SELECT source, target, kind, path, line, confidence FROM relationships"
+    ):
+        if not isinstance(confidence, str):
+            return False
+        if kind == "handles":
+            match = re.fullmatch(
+                r"(high|medium|low)\x1froute:([0-9a-f]{64})", confidence
+            )
+            if match is None:
+                return False
+            actual_handles[(source, path, line, target, confidence)] += 1
+        elif (
+            confidence not in _PUBLIC_CONFIDENCES
+            or _ROUTE_IDENTITY_SEPARATOR in confidence
+        ):
+            return False
+    if actual_handles != expected_handles:
+        return False
     return True
 
 
@@ -513,16 +621,95 @@ def extract_entities(path: str, content: str) -> tuple[list[Symbol], list[Refere
     )
 
 
+_ROUTE_IDENTITY_SEPARATOR = "\x1froute:"
+
+
+def _route_registration_identity(
+    *,
+    framework: str,
+    kind: str,
+    name: str,
+    target: str | None,
+    path: str,
+    line: int,
+    end_line: int,
+    confidence: str,
+    attributes: dict[str, str],
+) -> str:
+    payload = json.dumps(
+        [
+            framework,
+            kind,
+            name,
+            target,
+            path,
+            line,
+            end_line,
+            confidence,
+            attributes,
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _route_relationship_confidence(entity: FrameworkEntity) -> str:
+    identity = _route_registration_identity(
+        framework=entity.framework,
+        kind=entity.kind,
+        name=entity.name,
+        target=entity.target,
+        path=entity.path,
+        line=entity.line,
+        end_line=entity.end_line,
+        confidence=entity.confidence,
+        attributes=dict(entity.attributes),
+    )
+    return f"{entity.confidence}{_ROUTE_IDENTITY_SEPARATOR}{identity}"
+
+
+def _public_relationship_confidence(confidence: str) -> str:
+    if confidence in _PUBLIC_CONFIDENCES:
+        return confidence
+    match = re.fullmatch(
+        r"(high|medium|low)\x1froute:[0-9a-f]{64}", confidence
+    )
+    if match is None:
+        raise ValueError("invalid persisted relationship confidence")
+    return match.group(1)
+
+
 def extract_analysis(
     path: str,
     content: str | bytes,
-) -> tuple[list[Symbol], list[Reference], list[Relationship]]:
+) -> tuple[
+    list[Symbol],
+    list[Reference],
+    list[Relationship],
+    list[FrameworkEntity],
+]:
     source_file = SourceFile(path, content)
     analyzer = analyzer_for_path(Path(path))
+    framework_entities = extract_framework_entities(source_file)
+    relationships = analyzer.extract_relationships(source_file)
+    relationships.extend(
+        Relationship(
+            source=entity.name,
+            target=entity.target,
+            kind="handles",
+            path=entity.path,
+            line=entity.line,
+            confidence=_route_relationship_confidence(entity),
+        )
+        for entity in framework_entities
+        if entity.kind == "route" and entity.target is not None
+    )
     return (
         analyzer.extract_symbols(source_file),
         analyzer.extract_references(source_file),
-        analyzer.extract_relationships(source_file),
+        relationships,
+        framework_entities,
     )
 
 
@@ -606,10 +793,13 @@ def build_index(
             if existing.get(relative) == digest:
                 unchanged += 1
                 continue
-            symbols, references, relationships = extract_analysis(relative, snapshot)
+            symbols, references, relationships, framework_entities = extract_analysis(
+                relative, snapshot
+            )
             connection.execute("DELETE FROM symbols WHERE path = ?", (relative,))
             connection.execute("DELETE FROM refs WHERE path = ?", (relative,))
             connection.execute("DELETE FROM relationships WHERE path = ?", (relative,))
+            connection.execute("DELETE FROM framework_entities WHERE path = ?", (relative,))
             connection.execute(
                 "INSERT OR REPLACE INTO files(path, digest, category) VALUES (?, ?, ?)",
                 (relative, digest, classify_file(Path(relative))),
@@ -626,6 +816,25 @@ def build_index(
                 "INSERT INTO relationships(source, target, kind, path, line, confidence) VALUES (:source, :target, :kind, :path, :line, :confidence)",
                 [asdict(item) for item in relationships],
             )
+            connection.executemany(
+                "INSERT INTO framework_entities(framework, kind, name, target, path, line, end_line, confidence, attributes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        item.framework,
+                        item.kind,
+                        item.name,
+                        item.target,
+                        item.path,
+                        item.line,
+                        item.end_line,
+                        item.confidence,
+                        json.dumps(
+                            dict(item.attributes), sort_keys=True, allow_nan=False
+                        ),
+                    )
+                    for item in framework_entities
+                ],
+            )
             indexed += 1
         stale = set(existing) - set(files)
         for relative in stale:
@@ -633,6 +842,7 @@ def build_index(
             connection.execute("DELETE FROM symbols WHERE path = ?", (relative,))
             connection.execute("DELETE FROM refs WHERE path = ?", (relative,))
             connection.execute("DELETE FROM relationships WHERE path = ?", (relative,))
+            connection.execute("DELETE FROM framework_entities WHERE path = ?", (relative,))
             removed += 1
         _assert_database_identity(index_path(repo), database_identity)
         connection.commit()
@@ -642,9 +852,12 @@ def build_index(
         relationship_count = connection.execute(
             "SELECT COUNT(*) FROM relationships"
         ).fetchone()[0]
+        framework_entity_count = connection.execute(
+            "SELECT COUNT(*) FROM framework_entities"
+        ).fetchone()[0]
     finally:
         connection.close()
-    return {"indexed": indexed, "unchanged": unchanged, "removed": removed, "total_files": len(files), "symbols": symbol_count, "references": reference_count, "relationships": relationship_count}
+    return {"indexed": indexed, "unchanged": unchanged, "removed": removed, "total_files": len(files), "symbols": symbol_count, "references": reference_count, "relationships": relationship_count, "framework_entities": framework_entity_count}
 
 
 def find_symbols(repo: Path, name: str) -> list[dict]:
@@ -652,7 +865,9 @@ def find_symbols(repo: Path, name: str) -> list[dict]:
     connection, _database_identity_value = _connect(repo)
     try:
         rows = connection.execute(
-            "SELECT name, kind, path, line, end_line, parent, signature FROM symbols WHERE lower(name) = lower(?) ORDER BY path, line",
+            "SELECT name, kind, path, line, end_line, parent, signature FROM symbols "
+            "WHERE lower(name) = lower(?) "
+            "ORDER BY path, line, end_line, kind, name, parent, signature",
             (name,),
         ).fetchall()
         return [dict(row) for row in rows]
@@ -665,7 +880,9 @@ def find_references(repo: Path, name: str) -> list[dict]:
     connection, _database_identity_value = _connect(repo)
     try:
         rows = connection.execute(
-            "SELECT name, path, line, context, caller FROM refs WHERE lower(name) = lower(?) ORDER BY path, line",
+            "SELECT name, path, line, context, caller FROM refs "
+            "WHERE lower(name) = lower(?) "
+            "ORDER BY path, line, name, context, caller",
             (name,),
         ).fetchall()
         return [dict(row) for row in rows]
@@ -692,51 +909,294 @@ def find_relationships(
     try:
         rows = connection.execute(
             "SELECT source, target, kind, path, line, confidence "
-            f"FROM relationships{where} ORDER BY path, line, kind, source, target",
+            f"FROM relationships{where} "
+            "ORDER BY path, line, kind, source, target, confidence",
             parameters,
         ).fetchall()
-        return [dict(row) for row in rows]
+        relationships = []
+        for row in rows:
+            relationship = dict(row)
+            relationship["confidence"] = _public_relationship_confidence(
+                relationship["confidence"]
+            )
+            relationships.append(relationship)
+        return relationships
+    finally:
+        connection.close()
+
+
+def find_framework_entities(
+    repo: Path,
+    *,
+    framework: str | None = None,
+    kind: str | None = None,
+    kinds: Iterable[str] | None = None,
+    name: str | None = None,
+) -> list[dict]:
+    build_index(repo)
+    connection, _database_identity_value = _connect(repo)
+    clauses: list[str] = []
+    parameters: list[str] = []
+    for column, value in (("framework", framework), ("kind", kind), ("name", name)):
+        if value is not None:
+            clauses.append(f"lower({column}) = lower(?)")
+            parameters.append(value)
+    selected_kinds = tuple(kinds or ())
+    if kind is None and selected_kinds:
+        placeholders = ", ".join("lower(?)" for _kind in selected_kinds)
+        clauses.append(f"lower(kind) IN ({placeholders})")
+        parameters.extend(selected_kinds)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    try:
+        rows = connection.execute(
+            "SELECT framework, kind, name, target, path, line, end_line, confidence, attributes "
+            f"FROM framework_entities{where} "
+            "ORDER BY path, line, end_line, kind, name, framework, target, confidence, attributes",
+            parameters,
+        ).fetchall()
+        entities = []
+        for row in rows:
+            entity = dict(row)
+            entity["attributes"] = _decode_framework_attributes(
+                entity["attributes"]
+            )
+            entities.append(entity)
+        return entities
     finally:
         connection.close()
 
 
 def trace_symbol(repo: Path, name: str, max_depth: int = 6) -> tuple[list[dict], list[dict]]:
     build_index(repo)
+    if max_depth < 0:
+        return [], []
     connection, _database_identity_value = _connect(repo)
-    nodes: dict[tuple[str, str, int], dict] = {}
+    nodes: dict[tuple[object, ...], dict] = {}
     edges: list[dict] = []
-    queue = deque([(name, 0)])
-    visited: set[str] = set()
+    queue: deque[tuple[str, int, str | None, int | None]] = deque()
+    visited: set[tuple[str, str | None, int | None]] = set()
+    processed_definitions: set[tuple[str, str, int]] = set()
     try:
+        routes = connection.execute(
+            "SELECT framework, kind, name, target, path, line, end_line, confidence, attributes "
+            "FROM framework_entities WHERE kind='route' AND lower(name)=lower(?) "
+            "ORDER BY path, line, end_line, kind, name, framework, target, confidence, attributes",
+            (name,),
+        ).fetchall()
+        if routes:
+            for route_index, row in enumerate(routes):
+                route = dict(row)
+                route["attributes"] = _decode_framework_attributes(
+                    route["attributes"]
+                )
+                registration_confidence = (
+                    f"{route['confidence']}{_ROUTE_IDENTITY_SEPARATOR}"
+                    + _route_registration_identity(
+                        framework=route["framework"],
+                        kind=route["kind"],
+                        name=route["name"],
+                        target=route["target"],
+                        path=route["path"],
+                        line=route["line"],
+                        end_line=route["end_line"],
+                        confidence=route["confidence"],
+                        attributes=route["attributes"],
+                    )
+                )
+                nodes[
+                    (route["name"], route["path"], route["line"], route_index)
+                ] = route
+                registrations = connection.execute(
+                    "SELECT target FROM relationships "
+                    "WHERE kind='handles' AND lower(source)=lower(?) AND path=? AND line=? "
+                    "AND confidence=? "
+                    "ORDER BY target",
+                    (
+                        route["name"],
+                        route["path"],
+                        route["line"],
+                        registration_confidence,
+                    ),
+                ).fetchall()
+                targets = [registration["target"] for registration in registrations]
+                matching_targets = [
+                    target for target in targets if target == route["target"]
+                ]
+                if len(matching_targets) != 1:
+                    target = route["target"] or "<unknown>"
+                    edges.append(
+                        {
+                            "from": route["name"],
+                            "to": target,
+                            "kind": "handles",
+                            "path": route["path"],
+                            "from_line": route["line"],
+                            "resolved": False,
+                            "reason": (
+                                "handler_relationship_not_found"
+                                if not matching_targets
+                                else "handler_relationship_ambiguous"
+                            ),
+                        }
+                    )
+                    continue
+                target = matching_targets[0]
+                if route["framework"] == "django":
+                    handler_kind = route["attributes"].get(
+                        "handler_kind", "function"
+                    )
+                    definitions = connection.execute(
+                        "SELECT name, kind, path, line, end_line, parent, signature "
+                        "FROM symbols WHERE lower(name)=lower(?) AND kind=? "
+                        "AND parent IS NULL ORDER BY path, line, end_line",
+                        (target, handler_kind),
+                    ).fetchall()
+                    view_parts = route["attributes"].get("view", "").split(".")
+                    if view_parts and view_parts[-1] == "as_view":
+                        view_parts.pop()
+                    if view_parts and view_parts[-1].lower() == target.lower():
+                        view_parts.pop()
+                    if view_parts:
+                        definitions = [
+                            definition
+                            for definition in definitions
+                            if tuple(
+                                Path(definition["path"]).with_suffix("").parts[
+                                    -len(view_parts) :
+                                ]
+                            )
+                            == tuple(view_parts)
+                        ]
+                elif (
+                    route["framework"] == "express"
+                    and "." not in route["attributes"].get("handler", "")
+                ):
+                    definitions = connection.execute(
+                        "SELECT name, kind, path, line, end_line, parent, signature "
+                        "FROM symbols WHERE lower(name)=lower(?) AND path=? "
+                        "AND kind='function' AND parent IS NULL "
+                        "ORDER BY line, end_line",
+                        (target, route["path"]),
+                    ).fetchall()
+                else:
+                    handler_kind = route["attributes"].get(
+                        "handler_kind", "function"
+                    )
+                    definitions = connection.execute(
+                        "SELECT name, kind, path, line, end_line, parent, signature "
+                        "FROM symbols WHERE lower(name)=lower(?) AND path=? "
+                        "AND kind=? AND (parent IS NULL OR ? != 'function') "
+                        "AND line BETWEEN ? AND ? "
+                        "ORDER BY line, end_line",
+                        (
+                            target,
+                            route["path"],
+                            handler_kind,
+                            handler_kind,
+                            route["line"],
+                            route["end_line"],
+                        ),
+                    ).fetchall()
+                resolved = len(definitions) == 1
+                edge = {
+                    "from": route["name"],
+                    "to": target,
+                    "kind": "handles",
+                    "path": route["path"],
+                    "from_line": route["line"],
+                    "resolved": resolved,
+                }
+                if not resolved:
+                    edge["reason"] = (
+                        "handler_not_found"
+                        if not definitions
+                        else "handler_ambiguous"
+                    )
+                edges.append(edge)
+                if resolved:
+                    definition = definitions[0]
+                    queue.append(
+                        (
+                            definition["name"],
+                            1,
+                            definition["path"],
+                            definition["line"],
+                        )
+                    )
+        else:
+            queue.append((name, 0, None, None))
+
         while queue:
-            current, depth = queue.popleft()
-            if current.lower() in visited or depth > max_depth:
+            current, depth, path, line = queue.popleft()
+            visit_key = (current.lower(), path, line)
+            if visit_key in visited or depth > max_depth:
                 continue
-            visited.add(current.lower())
-            definitions = connection.execute(
-                "SELECT name, kind, path, line, end_line, parent, signature FROM symbols WHERE lower(name) = lower(?)",
-                (current,),
-            ).fetchall()
+            visited.add(visit_key)
+            if path is None:
+                definitions = connection.execute(
+                    "SELECT name, kind, path, line, end_line, parent, signature "
+                    "FROM symbols WHERE lower(name)=lower(?) ORDER BY path, line",
+                    (current,),
+                ).fetchall()
+            else:
+                definitions = connection.execute(
+                    "SELECT name, kind, path, line, end_line, parent, signature "
+                    "FROM symbols WHERE lower(name)=lower(?) AND path=? AND line=?",
+                    (current, path, line),
+                ).fetchall()
             for row in definitions:
                 node = dict(row)
+                definition_key = (
+                    node["name"].lower(),
+                    node["path"],
+                    node["line"],
+                )
+                if definition_key in processed_definitions:
+                    continue
+                processed_definitions.add(definition_key)
                 nodes[(node["name"], node["path"], node["line"])] = node
                 calls = connection.execute(
-                    "SELECT DISTINCT target AS name FROM relationships "
-                    "WHERE path=? AND source=? AND kind='calls' AND line BETWEEN ? AND ?",
+                    "SELECT target AS name, MIN(line) AS first_line FROM relationships "
+                    "WHERE path=? AND source=? AND kind='calls' AND line BETWEEN ? AND ? "
+                    "GROUP BY target ORDER BY first_line, target",
                     (node["path"], node["name"], node["line"], node["end_line"]),
                 ).fetchall()
                 for call in calls:
                     target = call["name"]
-                    if connection.execute("SELECT 1 FROM symbols WHERE lower(name)=lower(?) LIMIT 1", (target,)).fetchone():
-                        edges.append(
-                            {
-                                "from": node["name"],
-                                "to": target,
-                                "path": node["path"],
-                                "from_line": node["line"],
-                            }
+                    candidates = connection.execute(
+                        "SELECT name, path, line FROM symbols "
+                        "WHERE lower(name)=lower(?) ORDER BY path, line",
+                        (target,),
+                    ).fetchall()
+                    same_file = [
+                        candidate
+                        for candidate in candidates
+                        if candidate["path"] == node["path"]
+                    ]
+                    if len(same_file) == 1:
+                        definition = same_file[0]
+                    elif not same_file and len(candidates) == 1:
+                        definition = candidates[0]
+                    else:
+                        continue
+                    edges.append(
+                        {
+                            "from": node["name"],
+                            "to": target,
+                            "kind": "calls",
+                            "path": node["path"],
+                            "from_line": node["line"],
+                            "resolved": True,
+                        }
+                    )
+                    queue.append(
+                        (
+                            target,
+                            depth + 1,
+                            definition["path"],
+                            definition["line"],
                         )
-                        queue.append((target, depth + 1))
+                    )
     finally:
         connection.close()
     return list(nodes.values()), edges

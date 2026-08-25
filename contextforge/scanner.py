@@ -51,6 +51,7 @@ CODE_EXTENSIONS = {
     ".yaml",
     ".md",
     ".sql",
+    ".prisma",
 }
 
 
