@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from tree_sitter import Language, Node, Parser
+from tree_sitter import Language, Node, Parser, Tree
 import tree_sitter_javascript
 import tree_sitter_typescript
 
@@ -426,31 +426,271 @@ def _call_target(snapshot: bytes, node: Node | None) -> str:
     return _node_text(snapshot, node).split(".")[-1]
 
 
+def _javascript_has_early_error(snapshot: bytes, root: Node) -> bool:
+    function_nodes = {
+        "arrow_function",
+        "function_declaration",
+        "function_expression",
+        "generator_function",
+        "generator_function_declaration",
+        "method_definition",
+    }
+    loop_nodes = {
+        "do_statement",
+        "for_in_statement",
+        "for_statement",
+        "while_statement",
+    }
+
+    def binding_names(node: Node | None) -> list[str]:
+        if node is None:
+            return []
+        if node.type in {"identifier", "shorthand_property_identifier_pattern"}:
+            return [_node_text(snapshot, node)]
+        names: list[str] = []
+        for child in node.named_children:
+            names.extend(binding_names(child))
+        return names
+
+    def visit(
+        node: Node,
+        async_context: bool | None,
+        break_depth: int = 0,
+        continue_depth: int = 0,
+        labels: frozenset[str] = frozenset(),
+        continue_labels: frozenset[str] = frozenset(),
+    ) -> bool:
+        current_async = async_context
+        current_break_depth = break_depth
+        current_continue_depth = continue_depth
+        current_labels = labels
+        current_continue_labels = continue_labels
+        if node.type == "with_statement":
+            return True
+        if node.type == "number":
+            literal = _node_text(snapshot, node).lower()
+            if literal.startswith("0") and len(literal) > 1 and literal[1].isdigit():
+                return True
+        if node.type == "unary_expression":
+            argument = node.child_by_field_name("argument")
+            if (
+                _node_text(snapshot, node).lstrip().startswith("delete")
+                and argument is not None
+                and argument.type == "identifier"
+            ):
+                return True
+        if node.type in function_nodes:
+            parameters = node.child_by_field_name("parameters")
+            names = binding_names(parameters)
+            if len(names) != len(set(names)) or "await" in names:
+                return True
+            name = node.child_by_field_name("name")
+            if name is not None and _node_text(snapshot, name) == "await":
+                return True
+            current_async = any(child.type == "async" for child in node.children)
+            current_break_depth = 0
+            current_continue_depth = 0
+            current_labels = frozenset()
+            current_continue_labels = frozenset()
+        elif node.type == "await_expression" and current_async is False:
+            return True
+        elif node.type == "return_statement" and current_async is None:
+            return True
+        elif node.type == "break_statement":
+            label = next(
+                (child for child in node.named_children if child.type == "identifier"),
+                None,
+            )
+            if label is None:
+                return current_break_depth == 0
+            return _node_text(snapshot, label) not in current_labels
+        elif node.type == "continue_statement":
+            label = next(
+                (child for child in node.named_children if child.type == "identifier"),
+                None,
+            )
+            if label is None:
+                return current_continue_depth == 0
+            return _node_text(snapshot, label) not in current_continue_labels
+        elif node.type in loop_nodes:
+            current_break_depth += 1
+            current_continue_depth += 1
+        elif node.type == "switch_statement":
+            current_break_depth += 1
+        elif node.type == "labeled_statement":
+            label = node.child_by_field_name("label")
+            body = node.child_by_field_name("body")
+            if label is not None:
+                label_name = _node_text(snapshot, label)
+                current_labels = current_labels | {label_name}
+                if body is not None and body.type in loop_nodes:
+                    current_continue_labels = current_continue_labels | {label_name}
+        elif node.type in {
+            "class_declaration",
+            "lexical_declaration",
+            "variable_declaration",
+        }:
+            if node.type == "class_declaration":
+                targets = [node.child_by_field_name("name")]
+            else:
+                targets = [
+                    child.child_by_field_name("name")
+                    for child in node.named_children
+                    if child.type == "variable_declarator"
+                ]
+            if any("await" in binding_names(target) for target in targets):
+                return True
+        if node.type == "object":
+            proto_fields = 0
+            for child in node.named_children:
+                if child.type != "pair":
+                    continue
+                key = child.child_by_field_name("key")
+                if key is not None and key.type != "computed_property_name" and (
+                    _node_text(snapshot, key).strip("'\"") == "__proto__"
+                ):
+                    proto_fields += 1
+            if proto_fields > 1:
+                return True
+        return any(
+            visit(
+                child,
+                current_async,
+                current_break_depth,
+                current_continue_depth,
+                current_labels,
+                current_continue_labels,
+            )
+            for child in node.named_children
+        )
+
+    return visit(root, None)
+
+
+def _javascript_local_exports_are_bound(snapshot: bytes, root: Node) -> bool:
+    def declared_names(statement: Node) -> set[str]:
+        declaration = (
+            statement.child_by_field_name("declaration")
+            if statement.type == "export_statement"
+            else statement
+        )
+        if declaration is None:
+            return set()
+        if declaration.type == "import_statement":
+            clause = next(
+                (
+                    child
+                    for child in declaration.named_children
+                    if child.type == "import_clause"
+                ),
+                None,
+            )
+            return set(binding_names(clause))
+        if declaration.type in {
+            "abstract_class_declaration",
+            "class_declaration",
+            "enum_declaration",
+            "function_declaration",
+            "generator_function_declaration",
+            "interface_declaration",
+            "type_alias_declaration",
+        }:
+            name = declaration.child_by_field_name("name")
+            return {_node_text(snapshot, name)} if name is not None else set()
+        if declaration.type not in {"lexical_declaration", "variable_declaration"}:
+            return set()
+        names: set[str] = set()
+        for child in declaration.named_children:
+            if child.type == "variable_declarator":
+                names.update(binding_names(child.child_by_field_name("name")))
+        return names
+
+    def binding_names(node: Node | None) -> list[str]:
+        if node is None:
+            return []
+        if node.type in {
+            "identifier",
+            "shorthand_property_identifier_pattern",
+            "type_identifier",
+        }:
+            return [_node_text(snapshot, node)]
+        if node.type in {"import_specifier", "pair_pattern"}:
+            target = node.child_by_field_name("alias") or node.child_by_field_name("value")
+            target = target or node.child_by_field_name("name")
+            return binding_names(target)
+        names: list[str] = []
+        for child in node.named_children:
+            names.extend(binding_names(child))
+        return names
+
+    bindings: set[str] = set()
+    for statement in root.named_children:
+        bindings.update(declared_names(statement))
+    for statement in root.named_children:
+        if statement.type != "export_statement" or statement.child_by_field_name("source") is not None:
+            continue
+        for child in statement.named_children:
+            if child.type != "export_clause":
+                continue
+            for specifier in child.named_children:
+                if specifier.type != "export_specifier":
+                    continue
+                name = specifier.child_by_field_name("name")
+                if name is not None and _node_text(snapshot, name) not in bindings:
+                    return False
+    return True
+
+
+def _javascript_tree_result(
+    source_file: SourceFile, language_name: str | None = None
+) -> tuple[tuple[Tree, bytes] | None, bool]:
+    suffix = Path(source_file.path).suffix.lower()
+    try:
+        if language_name == "javascript" or suffix in {".js", ".jsx", ".mjs", ".cjs"}:
+            language = Language(tree_sitter_javascript.language())
+        elif language_name == "tsx" or suffix == ".tsx":
+            language = Language(tree_sitter_typescript.language_tsx())
+        elif language_name == "typescript" or suffix in {".ts", ".mts", ".cts"}:
+            language = Language(tree_sitter_typescript.language_typescript())
+        else:
+            return None, False
+        tree = Parser(language).parse(source_file.snapshot)
+    except Exception:
+        return None, True
+    if tree.root_node.has_error:
+        return None, True
+    if _javascript_has_early_error(source_file.snapshot, tree.root_node):
+        return None, False
+    if suffix == ".cjs" and any(
+        statement.type in {"import_statement", "export_statement"}
+        for statement in tree.root_node.named_children
+    ):
+        return None, False
+    if not _javascript_local_exports_are_bound(source_file.snapshot, tree.root_node):
+        return None, False
+    return (tree, source_file.snapshot), False
+
+
+def _javascript_tree(
+    source_file: SourceFile, language_name: str | None = None
+) -> tuple[Tree, bytes] | None:
+    return _javascript_tree_result(source_file, language_name)[0]
+
+
 def _tree_sitter_entities(
     source_file: SourceFile,
     language_name: str,
 ) -> tuple[tuple[Symbol, ...], tuple[Reference, ...]]:
-    snapshot = source_file.snapshot
-    try:
-        if language_name == "javascript":
-            language = Language(tree_sitter_javascript.language())
-        elif language_name == "tsx":
-            language = Language(tree_sitter_typescript.language_tsx())
-        else:
-            language = Language(tree_sitter_typescript.language_typescript())
-        tree = Parser(language).parse(snapshot)
-    except Exception:
+    parsed, recoverable = _javascript_tree_result(source_file, language_name)
+    if parsed is None:
+        if not recoverable:
+            return (), ()
         fallback = GenericLexicalAnalyzer()
         return (
             tuple(fallback.extract_symbols(source_file)),
             tuple(fallback.extract_references(source_file)),
         )
-    if tree.root_node.has_error:
-        fallback = GenericLexicalAnalyzer()
-        return (
-            tuple(fallback.extract_symbols(source_file)),
-            tuple(fallback.extract_references(source_file)),
-        )
+    tree, snapshot = parsed
     lines = source_file.content.splitlines()
     symbols: list[Symbol] = []
     references: list[Reference] = []
@@ -540,19 +780,10 @@ def _tree_sitter_relationships(
     source_file: SourceFile,
     language_name: str,
 ) -> tuple[Relationship, ...]:
-    snapshot = source_file.snapshot
-    try:
-        if language_name == "javascript":
-            language = Language(tree_sitter_javascript.language())
-        elif language_name == "tsx":
-            language = Language(tree_sitter_typescript.language_tsx())
-        else:
-            language = Language(tree_sitter_typescript.language_typescript())
-        tree = Parser(language).parse(snapshot)
-    except Exception:
+    parsed = _javascript_tree(source_file, language_name)
+    if parsed is None:
         return ()
-    if tree.root_node.has_error:
-        return ()
+    tree, snapshot = parsed
     relationships: list[Relationship] = []
 
     def add(source: str, target: str, kind: str, node: Node) -> None:

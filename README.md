@@ -28,6 +28,11 @@ cf search authentication
 cf symbol UserService
 cf refs create_user
 cf trace register
+cf routes
+cf services
+cf models
+cf jobs
+cf boundaries
 ```
 
 ContextForge resolves the Git root automatically. Outside Git, it treats the current directory as the repository root.
@@ -78,6 +83,28 @@ cf trace register --max-depth 10 --format json
 
 `trace` follows statically resolvable indexed call relationships between symbols. The result is evidence, not a claim that every dynamic runtime path has been discovered. Reflection, decorators, dependency-injection containers, callbacks, and dynamic dispatch may require framework-specific analyzers.
 
+### Framework-aware entities
+
+```bash
+cf routes
+cf services
+cf models
+cf jobs
+cf boundaries
+cf routes --format json
+cf trace "POST /users"
+```
+
+ContextForge derives framework entities from source syntax and registration evidence without importing or executing repository code. The initial analyzers cover:
+
+- Routes: FastAPI, Flask, Django, Express, NestJS, Angular, and Next.js App Router handlers.
+- Models and repositories: SQLAlchemy, Prisma, and TypeORM.
+- Services and frontend entities: SQLAlchemy repositories, React components and hooks, Next.js server actions, and Angular components and services.
+- Jobs: Celery application tasks and `shared_task` decorators.
+- Boundaries: FastAPI and Flask middleware, FastAPI route dependencies, Express middleware, and NestJS guards and interceptors.
+
+Evidence must be static and unambiguous. Supported patterns include exact or explicitly aliased framework imports, literal route and table metadata, proven application or client construction, and direct decorators or registrations. Dynamic imports, computed metadata, unsupported control flow, ambiguous ownership, rebinding, mutation before registration, and runtime-generated framework objects are deliberately omitted. These omissions are conservative false negatives rather than speculative high-confidence results.
+
 ### Evidence-backed briefing
 
 ```bash
@@ -105,6 +132,11 @@ Intelligence commands support `--format json` and emit schema version `1.0`:
 - `cf refs <name> --format json`
 - `cf trace <name> --format json`
 - `cf brief --format json`
+- `cf routes --format json`
+- `cf services --format json`
+- `cf models --format json`
+- `cf jobs --format json`
+- `cf boundaries --format json`
 
 Each payload contains `schema_version`, `command`, and `repository`, followed by command-specific data. The versioned contract is documented at [`docs/json-schema-1.0.json`](docs/json-schema-1.0.json).
 
@@ -144,7 +176,7 @@ python -m pytest -q
 
 The acceptance tests exercise JSON schema validation, incremental indexing, bounded single-snapshot reads, source and cache replacement attacks, schema rebuilding, structured failures, Python and Tree-sitter analyzers, relationship persistence, analyzer fingerprint invalidation, symbol/reference navigation, static tracing, and repository briefing against temporary repositories.
 
-Release benchmark methodology and mixed-language results are documented in [`docs/benchmarks-0.3.0.md`](docs/benchmarks-0.3.0.md).
+Release benchmark methodology and mixed-language results are documented in [`docs/benchmarks-0.4.0.md`](docs/benchmarks-0.4.0.md).
 
 ## License
 

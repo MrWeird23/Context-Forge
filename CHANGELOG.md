@@ -1,3 +1,24 @@
+## 0.4.0
+
+### Framework-aware intelligence
+
+- Add conservative syntax-derived analyzers for FastAPI, Flask, Django, Express, NestJS, SQLAlchemy, Celery, React, Next.js, Angular, Prisma, and TypeORM.
+- Index routes, controllers, components, hooks, models, repositories, services, server actions, jobs, middleware, guards, interceptors, and route dependencies when ownership and provenance are statically proven.
+- Add `.prisma` schema scanning and literal Prisma model, table mapping, client, and delegate extraction without invoking Prisma tooling.
+- Fail closed on ambiguous imports, aliases, rebinding, unsupported control flow, dynamic metadata, mutation timing, and unresolved ownership.
+
+### Persistence, tracing, and CLI
+
+- Upgrade the internal SQLite index to schema generation 3 for persistent framework entities and exact route-to-handler relationships.
+- Add stable `cf routes`, `cf services`, `cf models`, `cf jobs`, and `cf boundaries` commands with text and JSON output under the existing public schema version `1.0`.
+- Trace exact framework routes to uniquely resolved handlers while rejecting stale, duplicate, wrong-kind, or ambiguous relationship evidence.
+- Invalidate digest-equal indexes when framework analyzer semantics change through versioned analyzer fingerprints.
+
+### Testing and performance
+
+- Add adversarial framework coverage for import provenance, aliases, rebinding, control flow, mutation timing, malformed syntax, duplicate ownership, and false-positive prevention.
+- Record schema-generation 3 mixed-language indexing measurements in `docs/benchmarks-0.4.0.md`.
+
 ## 0.3.0
 
 ### Analyzer architecture

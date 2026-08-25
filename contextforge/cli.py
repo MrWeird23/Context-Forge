@@ -17,6 +17,7 @@ from .intelligence import (
     ContextForgeError,
     dumps,
     envelope,
+    find_framework_entities,
     find_references,
     find_symbols,
     repository_brief,
@@ -53,6 +54,7 @@ HELP_TEXT = """Examples:
   cf symbol UserService
   cf refs create_user
   cf trace register
+  cf boundaries
   cf brief --format json
   cf doctor"""
 
@@ -250,6 +252,7 @@ def cmd_index(args):
         "symbols",
         "references",
         "relationships",
+        "framework_entities",
     ):
         console.print(f"{key.replace('_', ' ').title()}: {result[key]}")
 
@@ -287,7 +290,38 @@ def cmd_trace(args):
         return
     print_header(f"ContextForge — Trace: {args.name}")
     for edge in edges:
-        console.print(f"{edge['from']} → {edge['to']}  [dim]{edge['path']}[/dim]")
+        unresolved = (
+            f"  [yellow]unresolved: {edge['reason']}[/yellow]"
+            if edge.get("resolved") is False
+            else ""
+        )
+        console.print(
+            f"{edge['from']} → {edge['to']}  [dim]{edge['path']}[/dim]{unresolved}"
+        )
+
+
+def cmd_routes(args):
+    return cmd_entities(args)
+
+
+def cmd_entities(args):
+    repo = repo_root()
+    entities = find_framework_entities(repo, kinds=args.entity_kinds)
+    result = envelope(args.command, repo, **{args.command: entities})
+    if args.format == "json":
+        print(dumps(result))
+        return
+    print_header(f"ContextForge — {args.command.title()}")
+    for entity in entities:
+        if args.entity_kinds == ("route",):
+            attributes = entity["attributes"]
+            label = f"{attributes.get('method', 'ANY'):>7}  {attributes.get('route', entity['name'])}"
+        else:
+            label = entity["name"]
+        target = f" → {entity['target']}" if entity["target"] else ""
+        console.print(
+            f"{label}{target}  [dim]{entity['path']}:{entity['line']}[/dim]"
+        )
 
 
 def cmd_brief(args):
@@ -441,6 +475,37 @@ def build_parser() -> argparse.ArgumentParser:
     trace.add_argument("name", help="Entry symbol name")
     trace.add_argument("--max-depth", type=int, default=6)
     trace.set_defaults(func=cmd_trace)
+
+    routes = add_format(
+        subcommands.add_parser("routes", help="List framework-aware route registrations")
+    )
+    routes.set_defaults(func=cmd_routes, entity_kinds=("route",))
+
+    models = add_format(
+        subcommands.add_parser("models", help="List framework-aware models")
+    )
+    models.set_defaults(func=cmd_entities, entity_kinds=("model",))
+
+    jobs = add_format(
+        subcommands.add_parser("jobs", help="List framework-aware jobs")
+    )
+    jobs.set_defaults(func=cmd_entities, entity_kinds=("job",))
+
+    services = add_format(
+        subcommands.add_parser("services", help="List framework-aware services")
+    )
+    services.set_defaults(
+        func=cmd_entities, entity_kinds=("service", "repository")
+    )
+
+    boundaries = add_format(
+        subcommands.add_parser(
+            "boundaries", help="List framework-aware middleware and authorization"
+        )
+    )
+    boundaries.set_defaults(
+        func=cmd_entities, entity_kinds=("middleware", "authorization")
+    )
 
     brief = add_format(subcommands.add_parser("brief", help="Generate an evidence-backed repository briefing"))
     brief.set_defaults(func=cmd_brief)

@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import contextforge.analyzers as analyzer_module
 from contextforge.analyzers import (
     Analyzer,
@@ -142,6 +144,60 @@ def test_typescript_tree_sitter_analyzer_extracts_interfaces_and_typed_methods()
     assert "persist" in {item.name for item in analyzer.extract_references(source)}
 
 
+@pytest.mark.parametrize(
+    "path, module",
+    [
+        (
+            "service.js",
+            "export class Service {}\nfunction invalid() { await load(); }\n",
+        ),
+        (
+            "service.ts",
+            "export class Service {}\nfunction invalid() { await load(); }\n",
+        ),
+        ("service.js", "export class Service {}\nbreak;\n"),
+        ("service.ts", "export class Service {}\nreturn;\n"),
+        ("service.js", "export class Service {}\nexport { missing };\n"),
+        (
+            "service.cjs",
+            "import dependency from './dependency.js';\nclass Service {}\n",
+        ),
+    ],
+)
+def test_javascript_analyzers_require_a_valid_whole_module(path, module):
+    analyzer = analyzer_for_path(Path(path))
+    source = SourceFile(path, module)
+
+    assert analyzer.extract_symbols(source) == []
+    assert analyzer.extract_references(source) == []
+    assert analyzer.extract_relationships(source) == []
+
+
+@pytest.mark.parametrize(
+    "path, module",
+    [
+        (
+            "service.js",
+            "await load();\nexport class Service { run() { return save(); } }\n",
+        ),
+        (
+            "service.ts",
+            "export async function load(): Promise<void> { await save(); }\n",
+        ),
+        (
+            "service.cjs",
+            "const dependency = require('./dependency.cjs');\n"
+            "class Service {}\nmodule.exports = Service;\n",
+        ),
+    ],
+)
+def test_javascript_analyzer_whole_module_validity_positive_controls(path, module):
+    analyzer = analyzer_for_path(Path(path))
+    source = SourceFile(path, module)
+
+    assert analyzer.extract_symbols(source)
+
+
 def test_python_analyzer_extracts_import_call_and_inheritance_relationships():
     source = SourceFile(
         "services.py",
@@ -248,7 +304,7 @@ def test_typescript_abstract_and_interface_heritage_is_indexed():
     }
 
 
-def test_index_schema_v2_persists_and_replaces_relationships(tmp_path, monkeypatch):
+def test_index_schema_v3_persists_and_replaces_relationships(tmp_path, monkeypatch):
     repository = tmp_path / "repository"
     repository.mkdir()
     source = repository / "service.py"
@@ -262,7 +318,7 @@ def test_index_schema_v2_persists_and_replaces_relationships(tmp_path, monkeypat
 
     first = build_index(repository)
 
-    assert intelligence.INDEX_SCHEMA_VERSION == 2
+    assert intelligence.INDEX_SCHEMA_VERSION == 3
     assert first["relationships"] == 2
     assert {(item["source"], item["target"], item["kind"]) for item in find_relationships(repository)} == {
         ("service.py", "storage", "imports"),
