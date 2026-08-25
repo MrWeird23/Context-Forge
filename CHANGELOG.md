@@ -1,3 +1,12 @@
+## 0.7.0
+
+### Documentation and graph exports
+
+- Add deterministic Markdown exports for repository briefs, task-oriented reports, and call traces.
+- Add Mermaid flowchart and Graphviz DOT exports for `cf trace`.
+- Escape repository-derived labels and paths so generated artifacts remain structurally valid when source names contain formatting characters.
+- Preserve existing terminal and JSON contracts while rejecting graph-only formats on commands without graph semantics.
+
 ## 0.6.0
 
 ### Git intelligence

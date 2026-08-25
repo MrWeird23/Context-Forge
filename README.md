@@ -45,6 +45,20 @@ cf history "fix parser"
 
 ContextForge resolves the Git root automatically. Outside Git, it treats the current directory as the repository root.
 
+## Export formats
+
+ContextForge produces deterministic artifacts suitable for documentation, pull requests, CI, and coding assistants:
+
+```bash
+cf brief --format markdown
+cf investigate "How does password reset work?" --format markdown
+cf trace register --format markdown
+cf trace register --format mermaid
+cf trace register --format graphviz
+```
+
+Markdown is available for repository briefs, task-oriented reports, and traces. Mermaid and Graphviz DOT are available for `trace`, where the indexed call relationships provide explicit graph semantics. Existing text and JSON output remain unchanged.
+
 ## Task-oriented investigation
 
 ContextForge can assemble bounded, evidence-backed reports around common development tasks:

@@ -13,9 +13,9 @@ This roadmap describes the intended direction of the project. Priorities may cha
 | **0.2.1** | Index hardening, schema migration, and structured errors | Complete |
 | **0.3.0** | Analyzer architecture and JavaScript/TypeScript Tree-sitter support | Complete |
 | **0.4.0** | Framework-aware entities and improved tracing | Complete |
-|| **0.5.0** | Task-oriented investigation reports | Complete |
-|| **0.6.0** | Git history, coupling, hotspots, and ownership | Complete |
-| **0.7.0** | Markdown, Mermaid, and Graphviz exports | Planned |
+| **0.5.0** | Task-oriented investigation reports | Complete |
+| **0.6.0** | Git history, coupling, hotspots, and ownership | Complete |
+| **0.7.0** | Markdown, Mermaid, and Graphviz exports | Complete |
 | **0.8.0** | Evidence and confidence standards | Planned |
 | **0.9.0** | Public plugin API and compatibility testing | Planned |
 | **1.0.0** | Stable schemas, plugin protocol, and compatibility guarantees | Planned |
@@ -152,8 +152,6 @@ Completed capabilities:
 
 The release deliberately reports historical path and contributor evidence rather than asserting current maintainership or runtime ownership. Broader symbol-to-commit and architectural-change synthesis remains future work.
 
-## Planned releases
-
 ### 0.7.0 — Architecture exports
 
 Produce artifacts suitable for documentation, CI, pull requests, and other coding assistants:
@@ -164,13 +162,17 @@ Produce artifacts suitable for documentation, CI, pull requests, and other codin
 - Mermaid
 - Graphviz DOT
 
-Potential commands include:
+Implemented commands include:
 
 ```bash
-cf architecture --format mermaid
 cf trace register --format mermaid
+cf trace register --format graphviz
 cf brief --format markdown
 ```
+
+Markdown exports are available for repository briefs, task-oriented reports, and call traces. Mermaid and Graphviz DOT are intentionally scoped to `trace`, whose indexed call relationships have explicit graph semantics. Architecture-map graph inference remains deferred until its relationships can be represented without inventing unsupported edges.
+
+## Planned releases
 
 ### 0.8.0 — Evidence and confidence standards
 
