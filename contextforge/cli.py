@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from rich.markup import escape
+
 from contextforge import __version__
 from .architecture import architecture_buckets
 from .detector import detect_project
@@ -21,6 +23,7 @@ from .intelligence import (
     find_references,
     find_symbols,
     repository_brief,
+    task_report,
     trace_symbol,
 )
 
@@ -54,6 +57,10 @@ HELP_TEXT = """Examples:
   cf symbol UserService
   cf refs create_user
   cf trace register
+  cf investigate "How does password reset work?"
+  cf impact "Rename User.email to User.primaryEmail"
+  cf change "Add rate limiting to password reset"
+  cf debug "Orders remain pending after payment succeeds"
   cf boundaries
   cf brief --format json
   cf doctor"""
@@ -79,7 +86,7 @@ class JSONArgumentParser(argparse.ArgumentParser):
 
 
 def print_header(text: str):
-    console.print(f"\n[bold cyan]{text}[/bold cyan]")
+    console.print(f"\n[bold cyan]{escape(text)}[/bold cyan]")
 
 
 def cmd_map(_args):
@@ -324,6 +331,93 @@ def cmd_entities(args):
         )
 
 
+def cmd_task_report(args):
+    repo = repo_root()
+    report = task_report(repo, args.query, args.command)
+    result = envelope(args.command, repo, report=report)
+    if args.format == "json":
+        print(dumps(result))
+        return
+    print_header(f"ContextForge — {args.command.title()}: {args.query}")
+    console.print(escape(report["summary"]))
+    console.print(f"Confidence: {escape(report['confidence'])}")
+    if report["facts"]:
+        console.print("\n[bold]Observed facts[/bold]")
+        for fact in report["facts"]:
+            evidence = fact["evidence"]
+            console.print(
+                f"- {escape(fact['statement'])}  "
+                f"{escape(evidence['path'])}:{evidence['line']}"
+            )
+    if report["inferences"]:
+        console.print("\n[bold]Inferences[/bold]")
+        for inference in report["inferences"]:
+            locations = ", ".join(
+                f"{escape(item['path'])}:{item['line']}" for item in inference["evidence"]
+            )
+            console.print(
+                f"- {escape(inference['statement'])}  "
+                f"confidence={escape(inference['confidence'])}  "
+                f"evidence={locations}"
+            )
+    if report["execution_paths"]:
+        console.print("\n[bold]Execution paths[/bold]")
+        for path in report["execution_paths"]:
+            names = " → ".join(
+                f"{escape(node['name'])} ({escape(node['path'])}:{node['line']})"
+                for node in path["nodes"]
+            )
+            edges = ", ".join(
+                f"{escape(edge['kind'])}@{escape(edge['path'])}:{edge['from_line']}"
+                f" resolved={edge['resolved']}"
+                for edge in path["edges"]
+            )
+            console.print(f"- {escape(path['entry'])}: {names}  edges={edges}")
+    mode_sections = {
+        "impact": ("Affected areas", "affected_areas"),
+        "change": ("Implementation patterns", "implementation_patterns"),
+        "debug": ("Ranked hypotheses", "hypotheses"),
+    }
+    if args.command in mode_sections:
+        heading, key = mode_sections[args.command]
+        if report[key]:
+            console.print(f"\n[bold]{heading}[/bold]")
+            for item in report[key]:
+                if args.command == "impact":
+                    console.print(
+                        f"- {escape(item['path'])}: "
+                        f"{', '.join(escape(reason) for reason in item['reasons'])}"
+                    )
+                elif args.command == "change":
+                    evidence = item["evidence"]
+                    console.print(
+                        f"- {escape(item['pattern'])}  "
+                        f"{escape(evidence['path'])}:{evidence['line']}"
+                    )
+                else:
+                    evidence = item["evidence"]
+                    console.print(
+                        f"- {item['rank']}. {escape(item['hypothesis'])}  "
+                        f"confidence={escape(item['confidence'])}  "
+                        f"{escape(evidence['path'])}:{evidence['line']}"
+                    )
+    if report["unresolved_questions"]:
+        console.print("\n[bold]Unresolved questions[/bold]")
+        for question in report["unresolved_questions"]:
+            console.print(f"- {escape(question)}")
+    if report["risks"]:
+        console.print("\n[bold]Risks[/bold]")
+        for item in report["risks"]:
+            paths = (
+                f"  paths={', '.join(escape(path) for path in item['paths'])}"
+                if item["paths"]
+                else ""
+            )
+            console.print(
+                f"- {escape(item['risk'])}  basis={escape(item['basis'])}{paths}"
+            )
+
+
 def cmd_brief(args):
     repo = repo_root()
     architecture = {
@@ -341,7 +435,7 @@ def cmd_brief(args):
     if result["entry_points"]:
         console.print("\n[bold]Entry points[/bold]")
         for item in result["entry_points"]:
-            console.print(f"- {item['command']}: {item['target']}")
+            console.print(f"- {escape(item['path'])}: {escape(item['reason'])}")
 
 
 
@@ -475,6 +569,17 @@ def build_parser() -> argparse.ArgumentParser:
     trace.add_argument("name", help="Entry symbol name")
     trace.add_argument("--max-depth", type=int, default=6)
     trace.set_defaults(func=cmd_trace)
+
+    task_commands = {
+        "investigate": "Explain how a repository behavior is implemented",
+        "impact": "Assess the evidence-backed impact of a proposed change",
+        "change": "Find implementation patterns, tests, and risks for a change",
+        "debug": "Rank evidence-backed debugging hypotheses",
+    }
+    for command, command_help in task_commands.items():
+        task = add_format(subcommands.add_parser(command, help=command_help))
+        task.add_argument("query", help="Question, proposed change, or observed symptom")
+        task.set_defaults(func=cmd_task_report)
 
     routes = add_format(
         subcommands.add_parser("routes", help="List framework-aware route registrations")

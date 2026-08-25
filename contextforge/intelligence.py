@@ -24,7 +24,7 @@ from .analyzers import (
     analyzer_registry,
 )
 from .frameworks import FrameworkEntity, extract_framework_entities
-from .ranking import classify_file
+from .ranking import classify_file, query_words
 from .scanner import iter_code_files
 
 SCHEMA_VERSION = "1.0"
@@ -964,6 +964,464 @@ def find_framework_entities(
         return entities
     finally:
         connection.close()
+
+
+_REPORT_STOP_WORDS = frozenset(
+    {
+        "a",
+        "add",
+        "after",
+        "an",
+        "and",
+        "does",
+        "for",
+        "how",
+        "in",
+        "is",
+        "of",
+        "remain",
+        "rename",
+        "the",
+        "to",
+        "what",
+        "when",
+        "why",
+        "with",
+        "work",
+        "working",
+    }
+)
+_TEST_CATEGORIES = frozenset({"Tests"})
+_CONFIG_FILENAMES = frozenset(
+    {
+        "package.json",
+        "pyproject.toml",
+        "requirements.txt",
+        "setup.cfg",
+        "setup.py",
+        "tox.ini",
+        "tsconfig.json",
+    }
+)
+
+
+def _report_terms(query: str) -> list[str]:
+    terms = []
+    for term in query_words(query):
+        if len(term) < 2 or term in _REPORT_STOP_WORDS or term in terms:
+            continue
+        terms.append(term)
+    return terms
+
+
+def _report_term_variants(term: str) -> set[str]:
+    variants = {term}
+    if term.endswith("ing") and len(term) > 5:
+        stem = term[:-3]
+        variants.add(stem)
+        if len(stem) >= 2 and stem[-1] == stem[-2]:
+            variants.add(stem[:-1])
+        variants.add(f"{stem}e")
+    elif term.endswith("ed") and len(term) > 4:
+        stem = term[:-2]
+        variants.add(stem)
+        variants.add(f"{stem}e")
+    elif term.endswith("es") and len(term) > 4:
+        variants.add(term[:-2])
+    elif term.endswith("s") and len(term) > 3:
+        variants.add(term[:-1])
+    return variants
+
+
+def _row_term_matches(
+    row: sqlite3.Row, terms: list[str], fields: tuple[str, ...]
+) -> set[str]:
+    text = " ".join(str(row[field] or "") for field in fields)
+    words = set(query_words(text.replace("_", " ")))
+    return {term for term in terms if _report_term_variants(term) & words}
+
+
+def _row_matches_terms(row: sqlite3.Row, terms: list[str], fields: tuple[str, ...]) -> int:
+    return len(_row_term_matches(row, terms, fields))
+
+
+def _report_confidence(
+    fact_count: int,
+    relevant_file_count: int,
+    matched_term_count: int,
+    term_count: int,
+) -> str:
+    coverage = matched_term_count / term_count if term_count else 0.0
+    if coverage == 1.0 and fact_count >= 5 and relevant_file_count >= 3:
+        return "high"
+    if coverage >= 0.6 and (fact_count >= 2 or relevant_file_count >= 2):
+        return "medium"
+    return "low"
+
+
+def task_report(repo: Path, query: str, kind: str, *, limit: int = 20) -> dict:
+    if kind not in {"investigate", "impact", "change", "debug"}:
+        raise ValueError(f"Unsupported task report kind: {kind}")
+    build_index(repo)
+    terms = _report_terms(query)
+    connection, _database_identity_value = _connect(repo)
+    try:
+        symbols = connection.execute(
+            "SELECT name, kind, path, line, end_line, parent, signature FROM symbols"
+        ).fetchall()
+        references = connection.execute(
+            "SELECT name, path, line, context, caller FROM refs"
+        ).fetchall()
+        relationships = connection.execute(
+            "SELECT source, target, kind, path, line, confidence FROM relationships"
+        ).fetchall()
+        entities = connection.execute(
+            "SELECT framework, kind, name, target, path, line, end_line, confidence, attributes "
+            "FROM framework_entities"
+        ).fetchall()
+        files = connection.execute("SELECT path, category FROM files").fetchall()
+    finally:
+        connection.close()
+
+    if not terms:
+        matched_symbols = []
+        matched_references = []
+        matched_relationships = []
+        matched_entities = []
+        matched_files = []
+    else:
+        matched_symbols = sorted(
+            (
+                (_row_matches_terms(row, terms, ("name", "parent", "signature", "path")), row)
+                for row in symbols
+            ),
+            key=lambda item: (
+                -item[0], item[1]["path"], item[1]["line"], item[1]["name"],
+                item[1]["kind"], item[1]["parent"] or "", item[1]["signature"] or "",
+            ),
+        )
+        matched_symbols = [row for score, row in matched_symbols if score][:limit]
+        matched_references = sorted(
+            (
+                (_row_matches_terms(row, terms, ("name", "context", "caller", "path")), row)
+                for row in references
+            ),
+            key=lambda item: (
+                -item[0], item[1]["path"], item[1]["line"], item[1]["name"],
+                item[1]["caller"] or "", item[1]["context"],
+            ),
+        )
+        matched_references = [row for score, row in matched_references if score][:limit]
+        matched_relationships = sorted(
+            (
+                (_row_matches_terms(row, terms, ("source", "target", "kind", "path")), row)
+                for row in relationships
+            ),
+            key=lambda item: (
+                -item[0], item[1]["path"], item[1]["line"], item[1]["source"],
+                item[1]["target"], item[1]["kind"], item[1]["confidence"],
+            ),
+        )
+        matched_relationships = [row for score, row in matched_relationships if score][:limit]
+        matched_entities = sorted(
+            (
+                (_row_matches_terms(row, terms, ("name", "target", "kind", "path")), row)
+                for row in entities
+            ),
+            key=lambda item: (
+                -item[0], item[1]["path"], item[1]["line"], item[1]["name"],
+                item[1]["target"] or "", item[1]["framework"], item[1]["kind"],
+                item[1]["confidence"], item[1]["attributes"],
+            ),
+        )
+        matched_entities = [row for score, row in matched_entities if score][:limit]
+        matched_files = sorted(
+            (
+                (_row_matches_terms(row, terms, ("path", "category")), row)
+                for row in files
+            ),
+            key=lambda item: (-item[0], item[1]["path"]),
+        )
+        matched_files = [row for score, row in matched_files if score][:limit]
+
+    definitions = [dict(row) for row in matched_symbols]
+    reference_items = [dict(row) for row in matched_references]
+    relationship_items = [dict(row) for row in matched_relationships]
+    related_names = {item["name"] for item in definitions + reference_items}
+    if related_names:
+        connected_rows = [
+            row
+            for row in relationships
+            if row["source"] in related_names or row["target"] in related_names
+        ]
+        connected_rows.sort(
+            key=lambda row: (
+                row["path"], row["line"], row["source"], row["target"],
+                row["kind"], row["confidence"],
+            )
+        )
+        known_relationships = {
+            (item["source"], item["target"], item["kind"], item["path"], item["line"])
+            for item in relationship_items
+        }
+        for row in connected_rows:
+            identity = (
+                row["source"],
+                row["target"],
+                row["kind"],
+                row["path"],
+                row["line"],
+            )
+            if identity in known_relationships:
+                continue
+            relationship_items.append(dict(row))
+            known_relationships.add(identity)
+            if len(relationship_items) >= limit:
+                break
+    entity_items = []
+    for row in matched_entities:
+        item = dict(row)
+        item["attributes"] = json.loads(item["attributes"])
+        entity_items.append(item)
+
+    relevant_paths = {}
+    for item in definitions + reference_items + relationship_items + entity_items:
+        relevant_paths.setdefault(item["path"], {"path": item["path"], "reasons": set()})
+        if item in definitions:
+            relevant_paths[item["path"]]["reasons"].add("definition")
+        elif item in reference_items:
+            relevant_paths[item["path"]]["reasons"].add("reference")
+        elif item in relationship_items:
+            relevant_paths[item["path"]]["reasons"].add("relationship")
+        else:
+            relevant_paths[item["path"]]["reasons"].add("framework_entity")
+    for row in matched_files:
+        relevant_paths.setdefault(row["path"], {"path": row["path"], "reasons": set()})
+        relevant_paths[row["path"]]["reasons"].add("path_match")
+    relevant_path_items = [
+        {"path": item["path"], "reasons": sorted(item["reasons"])}
+        for item in sorted(relevant_paths.values(), key=lambda item: item["path"])
+    ]
+
+    ordered_files = sorted(files, key=lambda row: (row["path"], row["category"]))
+    test_paths = [
+        {"path": row["path"], "reason": "existing_test"}
+        for row in ordered_files
+        if row["category"] in _TEST_CATEGORIES
+        and (
+            row["path"] in relevant_paths
+            or any(term in row["path"].lower() for term in terms)
+            or any(
+                reference["path"] == row["path"] for reference in reference_items
+            )
+        )
+    ][:limit]
+    config_paths = [
+        {"path": row["path"], "reason": "repository_configuration"}
+        for row in ordered_files
+        if Path(row["path"]).name.lower() in _CONFIG_FILENAMES
+    ][:limit]
+
+    facts = []
+    for item in definitions[:8]:
+        facts.append(
+            {
+                "statement": f"{item['name']} is defined as a {item['kind']}.",
+                "evidence": {"path": item["path"], "line": item["line"]},
+                "confidence": "high",
+            }
+        )
+    for item in reference_items[:8]:
+        facts.append(
+            {
+                "statement": f"{item['name']} is referenced here.",
+                "evidence": {"path": item["path"], "line": item["line"]},
+                "confidence": "high",
+            }
+        )
+    for item in entity_items[:4]:
+        facts.append(
+            {
+                "statement": f"{item['name']} is a {item['framework']} {item['kind']}.",
+                "evidence": {"path": item["path"], "line": item["line"]},
+                "confidence": item["confidence"],
+            }
+        )
+    facts = facts[:limit]
+
+    inferences = []
+    if relationship_items:
+        item = relationship_items[0]
+        if item["kind"] == "calls":
+            statement = (
+                f"{item['source']} may call {item['target']} according to a "
+                "statically indexed call relationship."
+            )
+        else:
+            statement = (
+                f"{item['source']} has a statically indexed {item['kind']} "
+                f"relationship to {item['target']}; this does not establish "
+                "runtime reachability."
+            )
+        inferences.append(
+            {
+                "statement": statement,
+                "confidence": item["confidence"],
+                "evidence": [{"path": item["path"], "line": item["line"]}],
+            }
+        )
+    elif definitions and reference_items:
+        inferences.append(
+            {
+                "statement": (
+                    f"{reference_items[0]['path']} likely participates in the behavior "
+                    f"defined by {definitions[0]['name']}."
+                ),
+                "confidence": "low",
+                "evidence": [
+                    {"path": definitions[0]["path"], "line": definitions[0]["line"]},
+                    {
+                        "path": reference_items[0]["path"],
+                        "line": reference_items[0]["line"],
+                    },
+                ],
+            }
+        )
+
+    seeds = []
+    for item in definitions:
+        if item["name"] not in seeds:
+            seeds.append(item["name"])
+    for item in entity_items:
+        target = item.get("target") or item["name"]
+        if target not in seeds:
+            seeds.append(target)
+    execution_paths = []
+    for seed in seeds[:5]:
+        nodes, edges = trace_symbol(repo, seed, max_depth=4)
+        if nodes or edges:
+            execution_paths.append({"entry": seed, "nodes": nodes, "edges": edges})
+
+    matched_terms: set[str] = set()
+    for row in matched_symbols:
+        matched_terms.update(
+            _row_term_matches(row, terms, ("name", "parent", "signature", "path"))
+        )
+    for row in matched_references:
+        matched_terms.update(
+            _row_term_matches(row, terms, ("name", "caller", "context", "path"))
+        )
+    for row in matched_relationships:
+        matched_terms.update(
+            _row_term_matches(row, terms, ("source", "target", "kind", "path"))
+        )
+    for row in matched_entities:
+        matched_terms.update(
+            _row_term_matches(
+                row, terms, ("name", "target", "kind", "framework", "path")
+            )
+        )
+    for row in matched_files:
+        matched_terms.update(_row_term_matches(row, terms, ("path", "category")))
+    confidence = _report_confidence(
+        len(facts), len(relevant_path_items), len(matched_terms), len(terms)
+    )
+    unresolved_questions = []
+    if not facts:
+        unresolved_questions.append(
+            "No indexed repository evidence matched the significant query terms. Which concrete symbol, route, or file should anchor the investigation?"
+        )
+    if facts and not execution_paths:
+        unresolved_questions.append(
+            "No statically resolvable execution path was found; runtime wiring may be involved."
+        )
+    if not test_paths:
+        unresolved_questions.append(
+            "No directly relevant existing tests were identified. Which behavior is expected to remain invariant?"
+        )
+
+    risks = []
+    if reference_items:
+        risks.append(
+            {
+                "risk": "Changing a matched definition may affect its indexed references.",
+                "basis": "observed_references",
+                "paths": sorted({item["path"] for item in reference_items}),
+            }
+        )
+    if not execution_paths and facts:
+        risks.append(
+            {
+                "risk": "Static evidence is incomplete for runtime or dynamic dispatch.",
+                "basis": "missing_static_path",
+                "paths": sorted(relevant_paths),
+            }
+        )
+    if not test_paths:
+        risks.append(
+            {
+                "risk": "No directly matching regression test was found.",
+                "basis": "missing_test_evidence",
+                "paths": [],
+            }
+        )
+
+    report = {
+        "kind": kind,
+        "query": query,
+        "summary": (
+            f"Found {len(facts)} observed facts across {len(relevant_path_items)} relevant paths."
+            if facts
+            else "No repository evidence matched the significant query terms."
+        ),
+        "confidence": confidence,
+        "facts": facts,
+        "inferences": inferences,
+        "unresolved_questions": unresolved_questions,
+        "relevant_paths": relevant_path_items,
+        "execution_paths": execution_paths,
+        "definitions": definitions,
+        "references": reference_items,
+        "framework_entities": entity_items,
+        "data_models_and_configuration": [
+            *[
+                item
+                for item in entity_items
+                if item["kind"] in {"model", "schema", "repository"}
+            ],
+            *config_paths,
+        ],
+        "tests": test_paths,
+        "risks": risks,
+    }
+    if kind == "impact":
+        report["affected_areas"] = [
+            {
+                "path": item["path"],
+                "reasons": item["reasons"],
+                "confidence": "high" if "definition" in item["reasons"] else "medium",
+            }
+            for item in relevant_path_items
+        ]
+    elif kind == "change":
+        report["implementation_patterns"] = [
+            {
+                "pattern": "Follow the observed definition and reference structure.",
+                "evidence": {"path": item["path"], "line": item["line"]},
+            }
+            for item in definitions[:5]
+        ]
+    elif kind == "debug":
+        report["hypotheses"] = [
+            {
+                "rank": rank,
+                "hypothesis": f"Inspect {item['name']} at the observed definition before assuming a runtime cause.",
+                "confidence": "medium",
+                "evidence": {"path": item["path"], "line": item["line"]},
+            }
+            for rank, item in enumerate(definitions[:5], start=1)
+        ]
+    return report
 
 
 def trace_symbol(repo: Path, name: str, max_depth: int = 6) -> tuple[list[dict], list[dict]]:
