@@ -1,3 +1,10 @@
+## 0.5.1
+
+### Packaging
+
+- Publish the CLI under the `contextforge-cli` distribution name to avoid the existing, unrelated `contextforge` project on PyPI.
+- Keep the Python import package as `contextforge` and the command-line entry point as `cf`.
+
 ## 0.5.0
 
 ### Task-oriented investigation
