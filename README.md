@@ -37,6 +37,10 @@ cf services
 cf models
 cf jobs
 cf boundaries
+cf hotspots
+cf coupling
+cf owners contextforge
+cf history "fix parser"
 ```
 
 ContextForge resolves the Git root automatically. Outside Git, it treats the current directory as the repository root.
@@ -133,6 +137,19 @@ cf brief --format json
 
 The briefing includes project detection, analyzer evidence, safely discovered package entry points, architecture buckets, symbol/reference/relationship totals, evidence, and a confidence label. Existing JSON 1.0 detection and entry-point fields remain compatible.
 
+## Git intelligence
+
+ContextForge can use the repository's commit history to expose relationships that are absent from the current source tree:
+
+```bash
+cf hotspots
+cf coupling --minimum-commits 3
+cf owners contextforge/cli.py
+cf history authentication
+```
+
+`cf hotspots` ranks paths by commit count and reports contributors, bug-fix commits, latest activity, and a repository-relative activity label. `cf coupling` measures how often two paths changed in the same commit. `cf owners` reports historical contribution shares for a file or directory prefix; it does not claim present-day maintainership. `cf history` searches commit subjects and paths, follows detected renames, and summarizes matching activity. All results are derived from committed Git history and remain deterministic for a fixed repository state.
+
 ## Explainable search
 
 ```bash
@@ -156,6 +173,10 @@ Intelligence commands support `--format json` and emit schema version `1.0`:
 - `cf models --format json`
 - `cf jobs --format json`
 - `cf boundaries --format json`
+- `cf hotspots --format json`
+- `cf coupling --format json`
+- `cf owners <path> --format json`
+- `cf history <query> --format json`
 
 Each payload contains `schema_version`, `command`, and `repository`, followed by command-specific data. The versioned contract is documented at [`docs/json-schema-1.0.json`](docs/json-schema-1.0.json).
 

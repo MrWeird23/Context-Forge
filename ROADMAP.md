@@ -13,8 +13,8 @@ This roadmap describes the intended direction of the project. Priorities may cha
 | **0.2.1** | Index hardening, schema migration, and structured errors | Complete |
 | **0.3.0** | Analyzer architecture and JavaScript/TypeScript Tree-sitter support | Complete |
 | **0.4.0** | Framework-aware entities and improved tracing | Complete |
-| **0.5.0** | Task-oriented investigation reports | Planned |
-| **0.6.0** | Git history, coupling, hotspots, and ownership | Planned |
+|| **0.5.0** | Task-oriented investigation reports | Complete |
+|| **0.6.0** | Git history, coupling, hotspots, and ownership | Complete |
 | **0.7.0** | Markdown, Mermaid, and Graphviz exports | Planned |
 | **0.8.0** | Evidence and confidence standards | Planned |
 | **0.9.0** | Public plugin API and compatibility testing | Planned |
@@ -130,8 +130,6 @@ Reports combine:
 
 The reports remain bounded by indexed static evidence. Dynamic runtime wiring and behavior outside the repository are retained as explicit uncertainty rather than inferred as fact.
 
-## Planned releases
-
 ### 0.6.0 — Git intelligence
 
 Use repository history to reveal relationships that are not explicit in the current source tree:
@@ -143,7 +141,7 @@ cf owners src/payments
 cf history authentication
 ```
 
-Planned capabilities:
+Completed capabilities:
 
 - Identify frequently changed files.
 - Find files commonly changed together.
@@ -151,8 +149,10 @@ Planned capabilities:
 - Detect historical renames.
 - Find concentrations of bug-fix activity.
 - Distinguish stable and volatile modules.
-- Connect symbols and features to relevant commits.
-- Summarize recent architectural changes.
+
+The release deliberately reports historical path and contributor evidence rather than asserting current maintainership or runtime ownership. Broader symbol-to-commit and architectural-change synthesis remains future work.
+
+## Planned releases
 
 ### 0.7.0 — Architecture exports
 

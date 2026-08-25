@@ -14,6 +14,7 @@ from .output import console, title, success, warning, error, line
 from .scanner import IGNORE_DIRS, repo_root
 from .search import search_repo
 from .search import structured_search
+from .git_intelligence import coupling, history, hotspots, owners
 from .intelligence import (
     build_index,
     ContextForgeError,
@@ -61,6 +62,10 @@ HELP_TEXT = """Examples:
   cf impact "Rename User.email to User.primaryEmail"
   cf change "Add rate limiting to password reset"
   cf debug "Orders remain pending after payment succeeds"
+  cf hotspots
+  cf coupling
+  cf owners contextforge/cli.py
+  cf history "fix parser"
   cf boundaries
   cf brief --format json
   cf doctor"""
@@ -234,6 +239,53 @@ def cmd_feature(args):
 
 def cmd_version(_args):
     console.print(f"ContextForge {__version__}")
+
+
+def _print_git_result(command: str, repo: Path, args, **payload):
+    result = envelope(command, repo, **payload)
+    if args.format == "json":
+        print(dumps(result))
+        return
+    print_header(f"ContextForge — {command.title()}")
+    if command == "hotspots":
+        for item in payload["hotspots"]:
+            console.print(f"{item['commits']:>5} commits  {item['authors']:>3} authors  {item['path']}")
+    elif command == "coupling":
+        for item in payload["couplings"]:
+            console.print(f"{item['strength']:.0%}  {item['commits']:>4} commits  {' ↔ '.join(item['paths'])}")
+    elif command == "owners":
+        console.print(f"Path: {payload['ownership']['path']}")
+        for item in payload["ownership"]["contributors"]:
+            console.print(f"{item['share']:.0%}  {item['commits']:>4} commits  {item['name']}")
+    else:
+        for item in payload["history"]["commits"]:
+            marker = "fix" if item["is_bug_fix"] else "   "
+            console.print(f"{marker}  {item['hash'][:8]}  {item['authored_at']}  {item['subject']}")
+
+
+def cmd_hotspots(args):
+    repo = repo_root()
+    _print_git_result("hotspots", repo, args, hotspots=hotspots(repo, args.limit))
+
+
+def cmd_coupling(args):
+    repo = repo_root()
+    _print_git_result(
+        "coupling",
+        repo,
+        args,
+        couplings=coupling(repo, args.minimum_commits, args.limit),
+    )
+
+
+def cmd_owners(args):
+    repo = repo_root()
+    _print_git_result("owners", repo, args, ownership=owners(repo, args.path))
+
+
+def cmd_history(args):
+    repo = repo_root()
+    _print_git_result("history", repo, args, history=history(repo, args.query, args.limit))
 
 
 def cmd_index(args):
@@ -551,6 +603,24 @@ def build_parser() -> argparse.ArgumentParser:
     feature = subcommands.add_parser("feature", help="Generate an AI-friendly feature report")
     feature.add_argument("query", help="Feature or topic to investigate")
     feature.set_defaults(func=cmd_feature)
+
+    hotspots_parser = add_format(subcommands.add_parser("hotspots", help="Rank frequently changed files"))
+    hotspots_parser.add_argument("--limit", type=int, default=20)
+    hotspots_parser.set_defaults(func=cmd_hotspots)
+
+    coupling_parser = add_format(subcommands.add_parser("coupling", help="Find files that change together"))
+    coupling_parser.add_argument("--minimum-commits", type=int, default=2)
+    coupling_parser.add_argument("--limit", type=int, default=20)
+    coupling_parser.set_defaults(func=cmd_coupling)
+
+    owners_parser = add_format(subcommands.add_parser("owners", help="Show contributors for a path"))
+    owners_parser.add_argument("path", help="Repository-relative file path")
+    owners_parser.set_defaults(func=cmd_owners)
+
+    history_parser = add_format(subcommands.add_parser("history", help="Search Git history and renames"))
+    history_parser.add_argument("query", help="Commit message or path query")
+    history_parser.add_argument("--limit", type=int, default=50)
+    history_parser.set_defaults(func=cmd_history)
 
     index = add_format(subcommands.add_parser("index", help="Build or refresh the incremental repository index"))
     index.add_argument("--max-file-size", type=int, default=None, metavar="BYTES")
