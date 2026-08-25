@@ -1,9 +1,10 @@
-import json
 import hashlib
+import json
 import os
 import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -123,7 +124,7 @@ def test_index_digest_and_entities_come_from_one_source_snapshot(sample_repo: Pa
     intelligence.build_index(sample_repo)
 
     database = intelligence.index_path(sample_repo)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         recorded_digest = connection.execute(
             "SELECT digest FROM files WHERE path = 'app.py'"
         ).fetchone()[0]
@@ -247,13 +248,13 @@ def test_source_access_fails_closed_without_no_follow_support(sample_repo: Path,
 def test_incompatible_index_is_atomically_rebuilt(sample_repo: Path):
     database = intelligence.index_path(sample_repo)
     database.parent.mkdir(parents=True)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         connection.execute("PRAGMA user_version = 999")
         connection.execute("CREATE TABLE obsolete(value TEXT)")
 
     intelligence.build_index(sample_repo)
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         obsolete = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='obsolete'"
@@ -265,13 +266,13 @@ def test_incompatible_index_is_atomically_rebuilt(sample_repo: Path):
 def test_matching_version_with_malformed_schema_is_rebuilt(sample_repo: Path):
     database = intelligence.index_path(sample_repo)
     database.parent.mkdir(parents=True)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         connection.execute(intelligence.INDEX_USER_VERSION_SQL)
         connection.execute("CREATE TABLE wrong_shape(value TEXT)")
 
     intelligence.build_index(sample_repo)
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         tables = {
             row[0]
             for row in connection.execute(
@@ -295,14 +296,14 @@ def test_matching_version_with_incompatible_index_is_rebuilt(
     database = intelligence.index_path(sample_repo)
     database.parent.mkdir(parents=True)
     intelligence._initialize_database(database)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         connection.execute("DROP INDEX symbols_name")
         connection.execute(replacement)
     (sample_repo / "duplicate.py").write_text("def register():\n    return None\n")
 
     intelligence.build_index(sample_repo)
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         index = next(
             row
             for row in connection.execute("PRAGMA index_list(symbols)")
@@ -316,12 +317,12 @@ def test_matching_version_with_unexpected_unique_index_is_rebuilt(sample_repo: P
     database = intelligence.index_path(sample_repo)
     database.parent.mkdir(parents=True)
     intelligence._initialize_database(database)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         connection.execute("CREATE UNIQUE INDEX symbols_kind_unique ON symbols(kind)")
 
     intelligence.build_index(sample_repo)
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         names = {
             row[1]
             for row in connection.execute("PRAGMA index_list(symbols)")
@@ -333,7 +334,7 @@ def test_matching_version_with_unexpected_trigger_is_rebuilt(sample_repo: Path):
     database = intelligence.index_path(sample_repo)
     database.parent.mkdir(parents=True)
     intelligence._initialize_database(database)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         connection.execute(
             "CREATE TRIGGER suppress_files BEFORE INSERT ON files "
             "BEGIN SELECT RAISE(IGNORE); END"
@@ -341,7 +342,7 @@ def test_matching_version_with_unexpected_trigger_is_rebuilt(sample_repo: Path):
 
     stats = intelligence.build_index(sample_repo)
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         triggers = connection.execute(
             "SELECT name FROM sqlite_schema WHERE type = 'trigger'"
         ).fetchall()
@@ -356,13 +357,13 @@ def test_matching_version_with_nocase_primary_key_is_rebuilt(sample_repo: Path):
     altered_schema = intelligence.INDEX_SCHEMA.replace(
         "path TEXT PRIMARY KEY", "path TEXT COLLATE NOCASE PRIMARY KEY"
     )
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         connection.executescript(altered_schema)
         connection.execute(intelligence.INDEX_USER_VERSION_SQL)
 
     intelligence.build_index(sample_repo)
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         key_columns = [
             row
             for row in connection.execute(
@@ -382,13 +383,13 @@ def test_matching_version_with_behavior_changing_check_is_rebuilt(sample_repo: P
         "path TEXT PRIMARY KEY,",
         "path TEXT PRIMARY KEY CHECK(path <> 'app.py'),",
     )
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         connection.executescript(altered_schema)
         connection.execute(intelligence.INDEX_USER_VERSION_SQL)
 
     stats = intelligence.build_index(sample_repo)
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         files_sql = connection.execute(
             "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'files'"
         ).fetchone()[0]
@@ -433,7 +434,7 @@ def test_schema_rebuild_refuses_live_wal_and_removes_closed_sidecars(sample_repo
 
     assert not Path(f"{database}-wal").exists()
     assert not Path(f"{database}-shm").exists()
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == intelligence.INDEX_SCHEMA_VERSION
 
 
@@ -463,7 +464,7 @@ def test_index_rejects_database_replaced_before_sqlite_open(
     intelligence.build_index(sample_repo)
     database = intelligence.index_path(sample_repo)
     target = tmp_path_factory.mktemp("database-race") / "redirected.sqlite"
-    with sqlite3.connect(target) as connection:
+    with closing(sqlite3.connect(target)) as connection:
         connection.execute("CREATE TABLE marker(value TEXT)")
     original_connect = intelligence.sqlite3.connect
     opens = 0
@@ -485,7 +486,7 @@ def test_index_rejects_database_replaced_before_sqlite_open(
     with pytest.raises(intelligence.CacheAccessError, match="Unsafe cache path"):
         intelligence.build_index(sample_repo)
     redirected = target if replacement_kind == "symlink" else database
-    with sqlite3.connect(redirected) as connection:
+    with closing(sqlite3.connect(redirected)) as connection:
         tables = {
             row[0]
             for row in connection.execute(
