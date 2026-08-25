@@ -200,7 +200,7 @@ def coupling(repo: Path, minimum_commits: int = 2, limit: int = 20) -> list[dict
     for commit in _commits(repo):
         if commit["rename_only"]:
             continue
-        paths = commit["paths"]
+        paths = sorted(commit["paths"])
         file_commits.update(paths)
         pair_commits.update(itertools.combinations(paths, 2))
 

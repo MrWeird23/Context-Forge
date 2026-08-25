@@ -92,6 +92,27 @@ def test_coupling_uses_commit_level_cochange_and_excludes_renames(history_repo: 
     ]
 
 
+def test_coupling_is_deterministic_when_git_reports_paths_in_reverse_order(
+    history_repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from contextforge import git_intelligence
+
+    original_commits = git_intelligence._commits
+
+    def reversed_paths(repo: Path) -> list[dict]:
+        commits = original_commits(repo)
+        for item in commits:
+            item["paths"] = list(reversed(item["paths"]))
+        return commits
+
+    monkeypatch.setattr(git_intelligence, "_commits", reversed_paths)
+
+    result = coupling(history_repo, minimum_commits=2)
+
+    assert result[0]["paths"] == ["app.py", "settings.py"]
+    assert result[0]["commits"] == 2
+
+
 def test_owners_resolves_renames_and_has_deterministic_contributors(history_repo: Path):
     result = owners(history_repo, "settings.py")
 
