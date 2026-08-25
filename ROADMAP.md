@@ -12,7 +12,7 @@ This roadmap describes the intended direction of the project. Priorities may cha
 |---|---|---|
 | **0.2.1** | Index hardening, schema migration, and structured errors | Complete |
 | **0.3.0** | Analyzer architecture and JavaScript/TypeScript Tree-sitter support | Complete |
-| **0.4.0** | Framework-aware entities and improved tracing | Next |
+| **0.4.0** | Framework-aware entities and improved tracing | Complete |
 | **0.5.0** | Task-oriented investigation reports | Planned |
 | **0.6.0** | Git history, coupling, hotspots, and ownership | Planned |
 | **0.7.0** | Markdown, Mermaid, and Graphviz exports | Planned |
@@ -52,11 +52,11 @@ ContextForge moved language-specific analysis behind a stable analyzer protocol:
 - Preserve the public JSON `1.0` contract.
 - Benchmark mixed-language indexing.
 
-## Next release
+## Current release
 
 ### 0.4.0 — Framework-aware analysis and stronger tracing
 
-The next release should move ContextForge from language awareness to framework awareness. Framework analyzers should identify architectural entities from syntax, registrations, and configuration instead of relying primarily on filenames and directories.
+ContextForge 0.4.0 moves from language awareness to conservative framework awareness. Framework analyzers identify architectural entities from syntax and proven registrations rather than relying primarily on filenames and directories.
 
 #### Initial framework targets
 
@@ -78,7 +78,7 @@ The next release should move ContextForge from language awareness to framework a
 - Prisma
 - TypeORM
 
-#### Entities to identify
+#### Initial entity coverage
 
 - Routes and request handlers
 - Controllers
@@ -86,25 +86,15 @@ The next release should move ContextForge from language awareness to framework a
 - Services
 - Components and hooks
 - Models and schemas
-- Repositories and database migrations
+- Repositories
 - Background jobs
-- Events and consumers
-- Relevant tests
 
-#### Tracing improvements
+#### Tracing improvements delivered
 
-- Resolve imported and exported symbols across files.
-- Connect method calls to candidate class definitions.
-- Detect inheritance and interface implementations more precisely.
 - Follow route-to-handler relationships.
-- Follow handler-to-service relationships.
-- Follow service-to-repository relationships.
 - Detect middleware and authorization boundaries.
-- Connect emitted events to consumers.
-- Connect background jobs to their registration points.
-- Report unresolved dynamic edges explicitly.
 
-Potential commands include:
+Commands include:
 
 ```bash
 cf routes
@@ -112,9 +102,9 @@ cf services
 cf models
 cf jobs
 cf trace "POST /users"
-cf trace UserService.create
-cf trace src/routes/users.py:42
 ```
+
+Dynamic cross-file service/repository resolution, event-consumer tracing, migration intelligence, and generalized framework plugins remain later work. The 0.4.0 analyzers deliberately omit ambiguous or runtime-generated relationships.
 
 ## Planned releases
 
