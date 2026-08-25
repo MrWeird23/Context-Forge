@@ -1,3 +1,12 @@
+## 0.5.0
+
+### Task-oriented investigation
+
+- Add `cf investigate`, `cf impact`, `cf change`, and `cf debug` reports for common repository investigation workflows.
+- Combine indexed definitions, references, static execution paths, framework entities, models, configuration, relevant tests, risks, and unresolved questions.
+- Separate observed facts from evidence-backed inferences and preserve explicit confidence in both text and JSON output.
+- Add mode-specific affected areas, implementation patterns, and ranked debugging hypotheses without claiming runtime certainty.
+
 ## 0.4.0
 
 ### Framework-aware intelligence
