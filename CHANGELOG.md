@@ -1,3 +1,13 @@
+## 0.6.0
+
+### Git intelligence
+
+- Add `cf hotspots` to rank frequently changed files, expose bug-fix concentration, and classify relative repository activity.
+- Add `cf coupling` to identify files repeatedly changed together using deterministic commit-level evidence.
+- Add `cf owners PATH` to estimate historical contribution shares for files and directory prefixes without asserting current maintainership.
+- Add `cf history QUERY` to search commit subjects and paths, follow detected renames, and summarize matching authors, paths, and bug-fix activity.
+- Support stable text and JSON output for all Git intelligence commands, with structured failures outside Git repositories.
+
 ## 0.5.1
 
 ### Packaging
