@@ -10,6 +10,7 @@ from rich.markup import escape
 from contextforge import __version__
 from .architecture import architecture_buckets
 from .detector import detect_project
+from .exporters import export
 from .output import console, title, success, warning, error, line
 from .scanner import IGNORE_DIRS, repo_root
 from .search import search_repo
@@ -347,6 +348,9 @@ def cmd_trace(args):
     if args.format == "json":
         print(dumps(result))
         return
+    if args.format in {"markdown", "mermaid", "graphviz"}:
+        print(export(result, args.format), end="")
+        return
     print_header(f"ContextForge — Trace: {args.name}")
     for edge in edges:
         unresolved = (
@@ -389,6 +393,9 @@ def cmd_task_report(args):
     result = envelope(args.command, repo, report=report)
     if args.format == "json":
         print(dumps(result))
+        return
+    if args.format == "markdown":
+        print(export(result, args.format), end="")
         return
     print_header(f"ContextForge — {args.command.title()}: {args.query}")
     console.print(escape(report["summary"]))
@@ -479,6 +486,9 @@ def cmd_brief(args):
     result = envelope("brief", repo, **repository_brief(repo, detect_project(repo), architecture))
     if args.format == "json":
         print(dumps(result))
+        return
+    if args.format == "markdown":
+        print(export(result, args.format), end="")
         return
     print_header("ContextForge — Repository Brief")
     console.print(f"Name: {result.get('name') or repo.name}")
@@ -595,6 +605,20 @@ def build_parser() -> argparse.ArgumentParser:
         parser.add_argument("--format", choices=("text", "json"), default="text")
         return parser
 
+    def add_markdown_format(parser):
+        parser.add_argument(
+            "--format", choices=("text", "json", "markdown"), default="text"
+        )
+        return parser
+
+    def add_graph_format(parser):
+        parser.add_argument(
+            "--format",
+            choices=("text", "json", "markdown", "mermaid", "graphviz"),
+            default="text",
+        )
+        return parser
+
     search = subcommands.add_parser("search", help="Search and rank repository files")
     search.add_argument("query", help="Search query")
     add_format(search)
@@ -635,7 +659,7 @@ def build_parser() -> argparse.ArgumentParser:
     refs.add_argument("name", help="Exact symbol name")
     refs.set_defaults(func=cmd_refs)
 
-    trace = add_format(subcommands.add_parser("trace", help="Trace calls from a symbol"))
+    trace = add_graph_format(subcommands.add_parser("trace", help="Trace a symbol or route execution graph"))
     trace.add_argument("name", help="Entry symbol name")
     trace.add_argument("--max-depth", type=int, default=6)
     trace.set_defaults(func=cmd_trace)
@@ -647,9 +671,13 @@ def build_parser() -> argparse.ArgumentParser:
         "debug": "Rank evidence-backed debugging hypotheses",
     }
     for command, command_help in task_commands.items():
-        task = add_format(subcommands.add_parser(command, help=command_help))
-        task.add_argument("query", help="Question, proposed change, or observed symptom")
-        task.set_defaults(func=cmd_task_report)
+        report_parser = add_markdown_format(
+            subcommands.add_parser(command, help=command_help)
+        )
+        report_parser.add_argument(
+            "query", help="Question, proposed change, or observed symptom"
+        )
+        report_parser.set_defaults(func=cmd_task_report)
 
     routes = add_format(
         subcommands.add_parser("routes", help="List framework-aware route registrations")
@@ -682,7 +710,7 @@ def build_parser() -> argparse.ArgumentParser:
         func=cmd_entities, entity_kinds=("middleware", "authorization")
     )
 
-    brief = add_format(subcommands.add_parser("brief", help="Generate an evidence-backed repository briefing"))
+    brief = add_markdown_format(subcommands.add_parser("brief", help="Generate an evidence-backed repository briefing"))
     brief.set_defaults(func=cmd_brief)
 
     return parser
