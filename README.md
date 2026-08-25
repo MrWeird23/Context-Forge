@@ -72,6 +72,8 @@ cf debug "Orders remain pending after payment succeeds"
 
 Each command accepts `--format json`. Reports separate observed facts from inferences, attach repository-relative path and line evidence, state overall and per-item confidence, retain unresolved questions, and identify relevant definitions, references, static execution paths, models, configuration, tests, and risks. `impact` adds affected areas, `change` adds evidence-backed implementation patterns, and `debug` adds ranked hypotheses.
 
+Repository briefs and task-oriented reports also emit standardized `claims`. Each claim records its statement, `observed` or `inferred` status, confidence, supporting evidence, conflicting evidence, and unresolved uncertainty. A claim without supporting evidence is assigned `unknown` confidence rather than presenting an unsupported conclusion. The contract is available in JSON and rendered explicitly in Markdown; the existing facts and inferences remain available for compatibility.
+
 The reports are deliberately conservative. They describe only relationships present in the static index, make uncertainty explicit, and do not claim to observe runtime wiring, reflection, generated code, or behavior outside the indexed repository.
 
 ## Repository intelligence

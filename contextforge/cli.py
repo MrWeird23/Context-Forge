@@ -419,6 +419,37 @@ def cmd_task_report(args):
                 f"confidence={escape(inference['confidence'])}  "
                 f"evidence={locations}"
             )
+    if report["claims"]:
+        console.print("\n[bold]Claims[/bold]")
+        for item in report["claims"]:
+            support = ", ".join(
+                (
+                    f"{escape(value.get('path', str(value)))}:{value['line']}"
+                    if value.get("line") is not None
+                    else escape(value.get("path", str(value)))
+                )
+                if isinstance(value, dict)
+                else escape(str(value))
+                for value in item["supporting_evidence"]
+            ) or "none"
+            conflicts = ", ".join(
+                (
+                    f"{escape(value.get('path', str(value)))}:{value['line']}"
+                    if value.get("line") is not None
+                    else escape(value.get("path", str(value)))
+                )
+                if isinstance(value, dict)
+                else escape(str(value))
+                for value in item["conflicting_evidence"]
+            ) or "none"
+            uncertainty = "; ".join(
+                escape(value) for value in item["unresolved_uncertainty"]
+            ) or "none"
+            console.print(
+                f"- {escape(item['claim'])}  status={escape(item['status'])}  "
+                f"confidence={escape(item['confidence'])}  support={support}  "
+                f"conflicts={conflicts}  uncertainty={uncertainty}"
+            )
     if report["execution_paths"]:
         console.print("\n[bold]Execution paths[/bold]")
         for path in report["execution_paths"]:
@@ -497,7 +528,40 @@ def cmd_brief(args):
     if result["entry_points"]:
         console.print("\n[bold]Entry points[/bold]")
         for item in result["entry_points"]:
-            console.print(f"- {escape(item['path'])}: {escape(item['reason'])}")
+            label = item.get("command") or item.get("name") or item.get("path")
+            target = item.get("target") or item.get("reason") or "unknown"
+            console.print(f"- {escape(label)}: {escape(target)}")
+    if result["claims"]:
+        console.print("\n[bold]Claims[/bold]")
+        for item in result["claims"]:
+            support = ", ".join(
+                (
+                    f"{escape(value.get('path', str(value)))}:{value['line']}"
+                    if value.get("line") is not None
+                    else escape(value.get("path", str(value)))
+                )
+                if isinstance(value, dict)
+                else escape(str(value))
+                for value in item["supporting_evidence"]
+            ) or "none"
+            conflicts = ", ".join(
+                (
+                    f"{escape(value.get('path', str(value)))}:{value['line']}"
+                    if value.get("line") is not None
+                    else escape(value.get("path", str(value)))
+                )
+                if isinstance(value, dict)
+                else escape(str(value))
+                for value in item["conflicting_evidence"]
+            ) or "none"
+            uncertainty = "; ".join(
+                escape(value) for value in item["unresolved_uncertainty"]
+            ) or "none"
+            console.print(
+                f"- {escape(item['claim'])}  status={escape(item['status'])}  "
+                f"confidence={escape(item['confidence'])}  support={support}  "
+                f"conflicts={conflicts}  uncertainty={uncertainty}"
+            )
 
 
 

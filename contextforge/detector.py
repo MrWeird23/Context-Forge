@@ -1,7 +1,12 @@
 import json
 from pathlib import Path
 
-from .intelligence import ContextForgeError, DEFAULT_MAX_FILE_SIZE, read_source_snapshot
+from .intelligence import (
+    ContextForgeError,
+    DEFAULT_MAX_FILE_SIZE,
+    SourceAccessError,
+    read_source_snapshot,
+)
 
 
 def detect_project(repo: Path) -> list[str]:
@@ -13,9 +18,18 @@ def detect_project(repo: Path) -> list[str]:
         try:
             snapshot = read_source_snapshot(repo, Path("package.json"), DEFAULT_MAX_FILE_SIZE)
             data = json.loads(snapshot.decode(errors="ignore"))
-            deps = {}
-            deps.update(data.get("dependencies", {}))
-            deps.update(data.get("devDependencies", {}))
+            if not isinstance(data, dict):
+                raise SourceAccessError("package.json must contain a JSON object")
+
+            runtime_dependencies = data.get("dependencies", {})
+            development_dependencies = data.get("devDependencies", {})
+            if not isinstance(runtime_dependencies, dict) or not isinstance(
+                development_dependencies, dict
+            ):
+                raise SourceAccessError(
+                    "package.json dependencies must be JSON objects"
+                )
+            deps = {**runtime_dependencies, **development_dependencies}
 
             scripts = data.get("scripts", {})
 

@@ -53,6 +53,28 @@ def test_brief_exports_deterministic_markdown(export_repo: Path):
     assert "## Repository" in first.stdout
     assert "## Architecture" in first.stdout
     assert "`app.py`" in first.stdout
+    assert "## Claims" in first.stdout
+    assert "status: `observed`" in first.stdout
+    assert "supporting evidence:" in first.stdout
+
+
+def test_task_report_markdown_exposes_complete_claim_contract(export_repo: Path):
+    result = run_cf(
+        export_repo,
+        "investigate",
+        "create user",
+        "--format",
+        "markdown",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "## Claims" in result.stdout
+    assert "status: `observed`" in result.stdout
+    assert "status: `inferred`" in result.stdout
+    assert "confidence:" in result.stdout
+    assert "supporting evidence:" in result.stdout
+    assert "conflicting evidence: none" in result.stdout
+    assert "unresolved uncertainty:" in result.stdout
 
 
 def test_trace_exports_mermaid_flowchart(export_repo: Path):
@@ -93,3 +115,35 @@ def test_markdown_escapes_untrusted_repository_content(export_repo: Path):
 
     assert result.returncode == 0, result.stderr
     assert "`unsafe|name.py`" in result.stdout
+
+
+def test_markdown_escapes_untrusted_claim_text(export_repo: Path):
+    from contextforge.exporters import markdown_export
+
+    rendered = markdown_export(
+        {
+            "command": "brief",
+            "repository": str(export_repo),
+            "claims": [
+                {
+                    "claim": "unsafe *claim* [label](https://example.invalid)",
+                    "status": "observed",
+                    "confidence": "high",
+                    "supporting_evidence": [],
+                    "conflicting_evidence": [],
+                    "unresolved_uncertainty": [],
+                }
+            ],
+        }
+    )
+
+    assert "unsafe \\*claim\\* \\[label\\]\\(https://example\\.invalid\\)" in rendered
+
+
+def test_markdown_code_span_handles_double_backticks(export_repo: Path):
+    (export_repo / "odd``name.py").write_text("def odd():\n    return 1\n")
+
+    result = run_cf(export_repo, "brief", "--format", "markdown")
+
+    assert result.returncode == 0, result.stderr
+    assert "``` odd``name.py ```" in result.stdout

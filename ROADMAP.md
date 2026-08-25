@@ -16,7 +16,7 @@ This roadmap describes the intended direction of the project. Priorities may cha
 | **0.5.0** | Task-oriented investigation reports | Complete |
 | **0.6.0** | Git history, coupling, hotspots, and ownership | Complete |
 | **0.7.0** | Markdown, Mermaid, and Graphviz exports | Complete |
-| **0.8.0** | Evidence and confidence standards | Planned |
+| **0.8.0** | Evidence and confidence standards | Complete |
 | **0.9.0** | Public plugin API and compatibility testing | Planned |
 | **1.0.0** | Stable schemas, plugin protocol, and compatibility guarantees | Planned |
 
@@ -172,7 +172,7 @@ cf brief --format markdown
 
 Markdown exports are available for repository briefs, task-oriented reports, and call traces. Mermaid and Graphviz DOT are intentionally scoped to `trace`, whose indexed call relationships have explicit graph semantics. Architecture-map graph inference remains deferred until its relationships can be represented without inventing unsupported edges.
 
-## Planned releases
+## Current release
 
 ### 0.8.0 — Evidence and confidence standards
 
@@ -191,6 +191,10 @@ Confidence should remain explainable:
 - **Medium** — strongly inferred from connected static evidence.
 - **Low** — plausible but dependent on dynamic behavior.
 - **Unknown** — insufficient evidence.
+
+The claim contract is now emitted by repository briefs and task-oriented reports in JSON and Markdown. Existing facts and inferences remain available for compatibility, while every standardized claim carries explicit support, conflicts, and unresolved uncertainty. Claims without supporting evidence cannot assert confidence above `unknown`.
+
+## Planned releases
 
 ### 0.9.0 — Public plugin system
 

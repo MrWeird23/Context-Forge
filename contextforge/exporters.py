@@ -10,8 +10,17 @@ def _text(value: object) -> str:
 
 def _code(value: object) -> str:
     text = _text(value)
-    fence = "`" if "`" not in text else "``"
-    return f"{fence}{text}{fence}"
+    longest_run = 0
+    current_run = 0
+    for character in text:
+        if character == "`":
+            current_run += 1
+            longest_run = max(longest_run, current_run)
+        else:
+            current_run = 0
+    fence = "`" * (longest_run + 1)
+    padding = " " if longest_run or text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{padding}{text}{padding}{fence}"
 
 
 def _heading(value: object) -> str:
@@ -19,7 +28,10 @@ def _heading(value: object) -> str:
 
 
 def _bullet(value: object) -> str:
-    return _text(value).replace("\\", "\\\\").replace("*", "\\*").replace("_", "\\_")
+    text = _text(value).replace("\\", "\\\\")
+    for character in "`*_{}[]<>()#+-.!|":
+        text = text.replace(character, f"\\{character}")
+    return text
 
 
 def _location(item: dict) -> str:
@@ -34,6 +46,37 @@ def _section(lines: list[str], title: str, entries: Iterable[str]) -> None:
         return
     lines.extend(("", f"## {title}", ""))
     lines.extend(f"- {value}" for value in values)
+
+
+def _evidence_label(item: object) -> str:
+    if isinstance(item, dict):
+        location = _location(item)
+        detail = item.get("detail") or item.get("kind")
+        return f"{location} ({_bullet(detail)})" if detail else location
+    return _bullet(item)
+
+
+def _claim_entry(item: dict) -> str:
+    support = item.get("supporting_evidence", [])
+    conflicts = item.get("conflicting_evidence", [])
+    uncertainty = item.get("unresolved_uncertainty", [])
+    support_text = "; ".join(_evidence_label(value) for value in support) or "none"
+    conflict_text = "; ".join(_evidence_label(value) for value in conflicts) or "none"
+    uncertainty_text = "; ".join(_bullet(value) for value in uncertainty) or "none"
+    return (
+        f"{_bullet(item.get('claim', ''))} — status: {_code(item.get('status', 'unknown'))}; "
+        f"confidence: {_code(item.get('confidence', 'unknown'))}; "
+        f"supporting evidence: {support_text}; conflicting evidence: {conflict_text}; "
+        f"unresolved uncertainty: {uncertainty_text}"
+    )
+
+
+def _claims(lines: list[str], payload: dict) -> None:
+    _section(
+        lines,
+        "Claims",
+        (_claim_entry(item) for item in payload.get("claims", [])),
+    )
 
 
 def markdown_export(payload: dict) -> str:
@@ -72,6 +115,7 @@ def markdown_export(payload: dict) -> str:
             for item in payload.get("evidence", [])
         )
         _section(lines, "Evidence", evidence)
+        _claims(lines, payload)
         lines.extend(
             ("", "## Confidence", "", _bullet(payload.get("confidence", "unknown")))
         )
@@ -94,6 +138,7 @@ def markdown_export(payload: dict) -> str:
                 for item in report.get("inferences", [])
             ),
         )
+        _claims(lines, report)
         _section(
             lines,
             "Unresolved Questions",
