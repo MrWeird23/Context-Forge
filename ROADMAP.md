@@ -106,11 +106,9 @@ cf trace "POST /users"
 
 Dynamic cross-file service/repository resolution, event-consumer tracing, migration intelligence, and generalized framework plugins remain later work. The 0.4.0 analyzers deliberately omit ambiguous or runtime-generated relationships.
 
-## Planned releases
-
 ### 0.5.0 — Task-oriented investigation
 
-Add reports designed around real development work:
+Delivered task-oriented reports for common development work:
 
 ```bash
 cf investigate "How does password reset work?"
@@ -119,7 +117,7 @@ cf change "Add rate limiting to password reset"
 cf debug "Orders remain pending after payment succeeds"
 ```
 
-Reports should combine:
+Reports combine:
 
 - Relevant execution paths
 - Definitions and references
@@ -129,6 +127,10 @@ Reports should combine:
 - Risks and invariants
 - Ranked hypotheses where appropriate
 - Observed facts, inferences, confidence, and unresolved questions
+
+The reports remain bounded by indexed static evidence. Dynamic runtime wiring and behavior outside the repository are retained as explicit uncertainty rather than inferred as fact.
+
+## Planned releases
 
 ### 0.6.0 — Git intelligence
 

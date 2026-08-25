@@ -28,6 +28,10 @@ cf search authentication
 cf symbol UserService
 cf refs create_user
 cf trace register
+cf investigate "How does password reset work?"
+cf impact "Rename User.email to User.primaryEmail"
+cf change "Add rate limiting to password reset"
+cf debug "Orders remain pending after payment succeeds"
 cf routes
 cf services
 cf models
@@ -36,6 +40,21 @@ cf boundaries
 ```
 
 ContextForge resolves the Git root automatically. Outside Git, it treats the current directory as the repository root.
+
+## Task-oriented investigation
+
+ContextForge can assemble bounded, evidence-backed reports around common development tasks:
+
+```bash
+cf investigate "How does password reset work?"
+cf impact "Rename User.email to User.primaryEmail"
+cf change "Add rate limiting to password reset"
+cf debug "Orders remain pending after payment succeeds"
+```
+
+Each command accepts `--format json`. Reports separate observed facts from inferences, attach repository-relative path and line evidence, state overall and per-item confidence, retain unresolved questions, and identify relevant definitions, references, static execution paths, models, configuration, tests, and risks. `impact` adds affected areas, `change` adds evidence-backed implementation patterns, and `debug` adds ranked hypotheses.
+
+The reports are deliberately conservative. They describe only relationships present in the static index, make uncertainty explicit, and do not claim to observe runtime wiring, reflection, generated code, or behavior outside the indexed repository.
 
 ## Repository intelligence
 
