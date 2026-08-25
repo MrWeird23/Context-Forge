@@ -152,7 +152,9 @@ def _commits(repo: Path) -> list[dict]:
         commits.append(
             {
                 **{key: raw[key] for key in ("hash", "author", "subject")},
-                "authored_at": datetime.fromisoformat(raw["authored_at"]).isoformat(),
+                "authored_at": datetime.fromisoformat(
+                    raw["authored_at"].replace("Z", "+00:00")
+                ).isoformat(),
                 "is_bug_fix": _is_bug_fix(raw["subject"]),
                 "paths": sorted(paths),
                 "renames": renames,
