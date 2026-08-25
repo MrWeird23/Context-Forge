@@ -7,7 +7,7 @@ See the [project roadmap](ROADMAP.md) for completed foundations, the next releas
 ## Install
 
 ```bash
-pipx install .
+pipx install contextforge-cli
 # Development installation
 python -m pip install -e '.[dev]'
 ```
