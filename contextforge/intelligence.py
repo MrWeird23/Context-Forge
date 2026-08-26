@@ -23,6 +23,7 @@ from .analyzers import (
     analyzer_for_path,
     analyzer_registry,
 )
+from .claims import claim, evidence as claim_evidence
 from .frameworks import FrameworkEntity, extract_framework_entities
 from .ranking import classify_file, query_words
 from .scanner import iter_code_files
@@ -1366,6 +1367,38 @@ def task_report(repo: Path, query: str, kind: str, *, limit: int = 20) -> dict:
             }
         )
 
+    claims = [
+        claim(
+            item["statement"],
+            status="observed",
+            confidence=item["confidence"],
+            supporting_evidence=[item["evidence"]],
+        )
+        for item in facts
+    ]
+    claims.extend(
+        claim(
+            item["statement"],
+            status="inferred",
+            confidence=item["confidence"],
+            supporting_evidence=item["evidence"],
+            unresolved_uncertainty=[
+                "Static evidence does not establish runtime behavior.",
+                *unresolved_questions,
+            ],
+        )
+        for item in inferences
+    )
+    if not claims:
+        claims.append(
+            claim(
+                f"No indexed repository evidence matched the task query: {query}",
+                status="inferred",
+                confidence="unknown",
+                unresolved_uncertainty=unresolved_questions,
+            )
+        )
+
     report = {
         "kind": kind,
         "query": query,
@@ -1377,6 +1410,7 @@ def task_report(repo: Path, query: str, kind: str, *, limit: int = 20) -> dict:
         "confidence": confidence,
         "facts": facts,
         "inferences": inferences,
+        "claims": claims,
         "unresolved_questions": unresolved_questions,
         "relevant_paths": relevant_path_items,
         "execution_paths": execution_paths,
@@ -1744,10 +1778,51 @@ def repository_brief(repo: Path, detections: Iterable[str], architecture: dict[s
         evidence = [{"claim": "symbol density", "path": row["path"], "symbol_count": row["count"]} for row in largest]
     finally:
         connection.close()
+    detections = list(detections)
+    claims = [
+        claim(
+            f"{item.split(':', 1)[0].removesuffix(' project')} is detected as a repository technology.",
+            status="observed",
+            confidence="high",
+            supporting_evidence=[
+                claim_evidence(
+                    path,
+                    kind="manifest",
+                    detail=f"Supports the {item} detection.",
+                )
+                for result in analyzer_results
+                for path in result.evidence
+                if result.analyzer.lower() in item.lower()
+            ],
+            unresolved_uncertainty=(
+                ["No analyzer evidence was available for this detection."]
+                if not any(
+                    result.analyzer.lower() in item.lower() and result.evidence
+                    for result in analyzer_results
+                )
+                else []
+            ),
+        )
+        for item in detections
+        if item != "Framework: Unknown"
+    ]
+    claims.extend(
+        claim(
+            f"{item.analyzer} analyzer detected repository support.",
+            status="observed",
+            confidence=item.confidence,
+            supporting_evidence=[
+                claim_evidence(path, kind="analyzer_detection")
+                for path in item.evidence
+            ],
+        )
+        for item in analyzer_results
+    )
     return {
         "name": project.get("name") if isinstance(project, dict) else None,
         "description": project.get("description") if isinstance(project, dict) else None,
-        "detections": list(detections),
+        "detections": detections,
+        "claims": claims,
         "analyzers": [
             {
                 "name": result.analyzer,

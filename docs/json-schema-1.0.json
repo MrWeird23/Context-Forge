@@ -23,10 +23,91 @@
     },
     "error": {
       "$ref": "#/$defs/error"
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/claim"
+      }
+    },
+    "report": {
+      "type": "object",
+      "properties": {
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/claim"
+          }
+        }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true,
   "$defs": {
+    "claim": {
+      "type": "object",
+      "required": [
+        "claim",
+        "status",
+        "confidence",
+        "supporting_evidence",
+        "conflicting_evidence",
+        "unresolved_uncertainty"
+      ],
+      "properties": {
+        "claim": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": ["observed", "inferred"]
+        },
+        "confidence": {
+          "enum": ["high", "medium", "low", "unknown"]
+        },
+        "supporting_evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "conflicting_evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "unresolved_uncertainty": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
     "error": {
       "type": "object",
       "required": [

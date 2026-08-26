@@ -1,3 +1,12 @@
+## 0.8.0
+
+### Evidence and confidence standards
+
+- Standardize report claims around a stable structure: claim, observed or inferred status, confidence, supporting evidence, conflicting evidence, and unresolved uncertainty.
+- Prevent unsupported claims from asserting confidence by reducing claims without supporting evidence to `unknown` confidence.
+- Add structured claims to repository briefs and task-oriented investigation reports while retaining the existing facts, inferences, and summary fields for compatibility.
+- Expose the complete claim contract in deterministic Markdown exports.
+
 ## 0.7.0
 
 ### Documentation and graph exports

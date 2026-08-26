@@ -667,3 +667,17 @@ def test_index_rejects_symlinked_cache_ancestor(
     assert result.returncode == 1
     assert json.loads(result.stdout)["error"]["code"] == "unsafe_cache_path"
     assert not any(outside.rglob("index.sqlite"))
+
+
+def test_detector_rejects_non_mapping_package_metadata(tmp_path: Path):
+    (tmp_path / "package.json").write_text("[]")
+
+    with pytest.raises(intelligence.SourceAccessError, match="package.json"):
+        detector.detect_project(tmp_path)
+
+
+def test_detector_rejects_non_mapping_dependency_metadata(tmp_path: Path):
+    (tmp_path / "package.json").write_text('{"dependencies": []}')
+
+    with pytest.raises(intelligence.SourceAccessError, match="dependencies"):
+        detector.detect_project(tmp_path)
