@@ -1,6 +1,6 @@
 # ContextForge plugins
 
-ContextForge 0.9 introduces an intentionally small public plugin protocol for adding source-language and project or infrastructure analyzers, plus framework entity extractors, without modifying core. An analyzer with no declared extensions can contribute project or infrastructure detection without claiming source files.
+ContextForge 1.x provides an intentionally small, stable public plugin protocol for adding source-language and project or infrastructure analyzers, plus framework entity extractors, without modifying core. An analyzer with no declared extensions can contribute project or infrastructure detection without claiming source files. The complete 1.x compatibility and migration policy is documented in [the compatibility contract](compatibility.md).
 
 ## Compatibility
 
@@ -28,7 +28,7 @@ plugin = Plugin(
 )
 ```
 
-Protocol `1.0` is the only protocol accepted by ContextForge 0.9. ContextForge rejects incompatible or malformed plugins and reports them through `cf doctor`. Protocol compatibility, rather than the plugin package version, governs whether a plugin can load.
+Protocol `1.0` is the stable protocol accepted by ContextForge 1.x. ContextForge rejects incompatible or malformed plugins and reports them through `cf doctor`. Protocol compatibility, rather than the plugin package version, governs whether a plugin can load.
 
 Language analyzers implement the public `Analyzer` protocol from `contextforge.analyzers`; framework analyzers implement `FrameworkAnalyzer` from `contextforge.frameworks`. Their return values use the public dataclasses in those modules.
 

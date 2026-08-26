@@ -17,8 +17,8 @@ This roadmap describes the intended direction of the project. Priorities may cha
 | **0.6.0** | Git history, coupling, hotspots, and ownership | Complete |
 | **0.7.0** | Markdown, Mermaid, and Graphviz exports | Complete |
 | **0.8.0** | Evidence and confidence standards | Complete |
-| **0.9.0** | Public plugin API and compatibility testing | Planned |
-| **1.0.0** | Stable schemas, plugin protocol, and compatibility guarantees | Planned |
+| **0.9.0** | Public plugin API and compatibility testing | Complete |
+| **1.0.0** | Stable schemas, plugin protocol, and compatibility guarantees | Complete |
 
 ## Completed foundations
 
@@ -221,11 +221,11 @@ in-process code rather than a sandboxed extension mechanism.
 See [the plugin guide](docs/plugins.md) for authoring, diagnostics,
 compatibility testing, disablement, and security guidance.
 
-## Planned releases
+## Completed release: 1.0.0
 
-### 1.0.0 — Stable compatibility contract
+### Stable compatibility contract
 
-The first stable release should provide:
+The first stable release provides:
 
 - Stable machine-readable schemas
 - Stable plugin API and protocol
@@ -233,6 +233,12 @@ The first stable release should provide:
 - Documented upgrade and migration policy
 - Security and resource-boundary documentation
 - Release artifact and installation verification
+
+ContextForge 1.0 publishes a stable `1.0` JSON envelope and plugin protocol,
+an explicit additive-change and migration policy, machine-readable compatibility
+metadata, documented security and resource boundaries, and release gates across
+all supported Python versions and built artifacts. See
+[the compatibility contract](docs/compatibility.md).
 
 ## Definition of done
 

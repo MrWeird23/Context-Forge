@@ -14,6 +14,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
+from .compatibility import JSON_OUTPUT_SCHEMA_VERSION
+
 from .analyzers import (
     Relationship,
     Reference,
@@ -28,7 +30,7 @@ from .frameworks import FrameworkEntity, extract_framework_entities
 from .ranking import classify_file, query_words
 from .scanner import iter_code_files
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = JSON_OUTPUT_SCHEMA_VERSION
 INDEX_NAME = "index.sqlite"
 INDEX_SCHEMA_VERSION = 3
 INDEX_USER_VERSION_SQL = f"PRAGMA user_version = {INDEX_SCHEMA_VERSION}"
