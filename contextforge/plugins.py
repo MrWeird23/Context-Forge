@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import importlib.metadata
+from importlib.metadata import EntryPoint
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import TypeVar
+from typing import Mapping, TypeVar, cast
 
 from .analyzers import Analyzer, DetectionResult
 from .frameworks import FrameworkAnalyzer
@@ -211,8 +212,12 @@ def _validate_plugin(candidate: object) -> str | None:
         return "Plugin name and version must be strings"
     if not candidate.name or not candidate.version:
         return "Plugin name and version must be non-empty"
-    if not isinstance(candidate.priority, int) or isinstance(candidate.priority, bool):
-        return "Plugin priority must be an integer"
+    if (
+        not isinstance(candidate.priority, int)
+        or isinstance(candidate.priority, bool)
+        or candidate.priority < 0
+    ):
+        return "Plugin priority must be a non-negative integer"
     if not isinstance(candidate.analyzers, tuple):
         return "Plugin analyzers must be a tuple"
     if not isinstance(candidate.framework_analyzers, tuple):
@@ -248,8 +253,9 @@ def plugin_registry() -> PluginRegistry:
         available = importlib.metadata.entry_points()
         if hasattr(available, "select"):
             entry_points = available.select(group=PLUGIN_ENTRY_POINT_GROUP)
-        elif isinstance(available, dict):
-            entry_points = available.get(PLUGIN_ENTRY_POINT_GROUP, ())
+        elif hasattr(available, "get"):
+            legacy = cast(Mapping[str, tuple[EntryPoint, ...]], available)
+            entry_points = legacy.get(PLUGIN_ENTRY_POINT_GROUP, ())
         else:
             entry_points = (
                 entry_point

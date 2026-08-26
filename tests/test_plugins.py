@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -254,6 +255,49 @@ def test_legacy_entry_point_collections_are_supported(monkeypatch):
     plugins.reset_plugin_cache()
 
     assert [plugin.name for plugin in plugins.plugin_registry().plugins] == ["demo"]
+
+
+def test_legacy_mapping_entry_point_collections_are_supported(monkeypatch):
+    import contextforge.plugins as plugins
+
+    class LegacyEntryPoints(Mapping):
+        def __init__(self, entries):
+            self._entries = entries
+
+        def __getitem__(self, key):
+            return self._entries[key]
+
+        def __iter__(self):
+            return iter(self._entries)
+
+        def __len__(self):
+            return len(self._entries)
+
+    entry_point = FakeEntryPoint("demo-dist", "demo:plugin", make_plugin())
+    monkeypatch.setattr(
+        plugins.importlib.metadata,
+        "entry_points",
+        lambda: LegacyEntryPoints({"contextforge.plugins": (entry_point,)}),
+    )
+    plugins.reset_plugin_cache()
+
+    assert [plugin.name for plugin in plugins.plugin_registry().plugins] == ["demo"]
+
+
+@pytest.mark.parametrize("priority", [-1, True])
+def test_invalid_priorities_are_rejected(monkeypatch, priority):
+    from contextforge.plugins import plugin_registry
+
+    install_plugins(
+        monkeypatch,
+        FakeEntryPoint("demo-dist", "demo:plugin", make_plugin(priority=priority)),
+    )
+
+    registry = plugin_registry()
+
+    assert registry.plugins == ()
+    assert [item.code for item in registry.diagnostics] == ["invalid-plugin"]
+    assert "non-negative integer" in registry.diagnostics[0].message
 
 
 def test_base_exception_isolated_but_process_control_propagates(monkeypatch):
