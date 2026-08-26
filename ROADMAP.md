@@ -19,6 +19,7 @@ This roadmap describes the intended direction of the project. Priorities may cha
 | **0.8.0** | Evidence and confidence standards | Complete |
 | **0.9.0** | Public plugin API and compatibility testing | Complete |
 | **1.0.0** | Stable schemas, plugin protocol, and compatibility guarantees | Complete |
+| **1.1.0** | Read-only MCP server for coding agents | Complete |
 
 ## Completed foundations
 

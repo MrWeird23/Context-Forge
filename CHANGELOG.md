@@ -1,3 +1,11 @@
+## 1.1.0
+
+### MCP server
+
+- Add a read-only stdio MCP server for repository briefs, indexed search, symbols, references, traces, and evidence-backed investigations.
+- Validate repository paths and optionally confine access beneath `CONTEXTFORGE_MCP_ROOT`.
+- Publish the `contextforge-mcp` executable for Claude Code, Codex, and other MCP clients.
+
 ## 1.0.0
 
 ### Stable compatibility contract

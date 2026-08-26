@@ -8,6 +8,10 @@
     "entry_point_group": "contextforge.plugins",
     "protocol_version": "1.0"
   },
+  "mcp": {
+    "tool_protocol_version": "1.0",
+    "transport": "stdio"
+  },
   "python": {
     "supported_versions": [
       "3.10",
