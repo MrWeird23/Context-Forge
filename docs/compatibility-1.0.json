@@ -1,0 +1,19 @@
+{
+  "compatibility_version": "1.0",
+  "json_output": {
+    "schema_version": "1.0",
+    "schema": "json-schema-1.0.json"
+  },
+  "plugins": {
+    "entry_point_group": "contextforge.plugins",
+    "protocol_version": "1.0"
+  },
+  "python": {
+    "supported_versions": [
+      "3.10",
+      "3.11",
+      "3.12",
+      "3.13"
+    ]
+  }
+}

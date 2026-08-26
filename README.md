@@ -2,7 +2,7 @@
 
 ContextForge is an AI-first repository exploration CLI. It combines fast lexical search with an incremental symbol, reference, and relationship index so humans and coding assistants can establish architectural context before editing code.
 
-See the [project roadmap](ROADMAP.md) for completed foundations, the next release, and the path toward ContextForge 1.0.
+See the [project roadmap](ROADMAP.md) for the completed foundations and future direction. ContextForge 1.x compatibility guarantees are documented in the [stable compatibility contract](docs/compatibility.md).
 
 ## Install
 
@@ -88,6 +88,10 @@ Each command accepts `--format json`. Reports separate observed facts from infer
 Repository briefs and task-oriented reports also emit standardized `claims`. Each claim records its statement, `observed` or `inferred` status, confidence, supporting evidence, conflicting evidence, and unresolved uncertainty. A claim without supporting evidence is assigned `unknown` confidence rather than presenting an unsupported conclusion. The contract is available in JSON and rendered explicitly in Markdown; the existing facts and inferences remain available for compatibility.
 
 The reports are deliberately conservative. They describe only relationships present in the static index, make uncertainty explicit, and do not claim to observe runtime wiring, reflection, generated code, or behavior outside the indexed repository.
+
+## Compatibility
+
+ContextForge 1.x stabilizes the `1.0` JSON envelope and plugin protocol. The published [JSON Schema](docs/json-schema-1.0.json), [machine-readable compatibility manifest](docs/compatibility-1.0.json), and [compatibility contract](docs/compatibility.md) define additive-change rules, supported Python versions, migration policy, security boundaries, and release verification requirements.
 
 ## Repository intelligence
 

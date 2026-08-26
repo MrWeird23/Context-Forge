@@ -15,7 +15,7 @@ authors = [
 ]
 keywords = ["cli", "repository", "code-search", "ai"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Operating System :: POSIX",
@@ -55,6 +55,8 @@ packages = ["contextforge"]
     "ROADMAP.md",
     "docs/benchmarks-0.3.0.md",
     "docs/benchmarks-0.4.0.md",
+    "docs/compatibility-1.0.json",
+    "docs/compatibility.md",
     "docs/json-schema-1.0.json",
     "docs/plugins.md",
 ]

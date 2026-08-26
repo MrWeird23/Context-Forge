@@ -9,10 +9,9 @@ from pathlib import Path
 from typing import Mapping, TypeVar, cast
 
 from .analyzers import Analyzer, DetectionResult
+from .compatibility import PLUGIN_ENTRY_POINT_GROUP, PLUGIN_PROTOCOL_VERSION
 from .frameworks import FrameworkAnalyzer
 
-PLUGIN_ENTRY_POINT_GROUP = "contextforge.plugins"
-PLUGIN_PROTOCOL_VERSION = "1.0"
 _DISABLED_VALUES = {"1", "true", "yes", "on"}
 _CORE_EXTENSIONS = {
     ".py",

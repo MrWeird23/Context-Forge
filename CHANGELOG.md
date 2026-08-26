@@ -1,3 +1,12 @@
+## 1.0.0
+
+### Stable compatibility contract
+
+- Stabilize the `1.0` machine-readable JSON envelope and plugin protocol for the ContextForge 1.x release line.
+- Publish machine-readable and human-readable compatibility contracts covering additive changes, migration policy, supported Python versions, and explicit security and resource boundaries.
+- Add contract tests that bind runtime versions, public plugin dataclass shapes, schema forward compatibility, and packaged compatibility metadata.
+- Promote the Python package classifier to production/stable and include the compatibility documents in release artifacts.
+
 ## 0.9.0
 
 ### Public plugin system
