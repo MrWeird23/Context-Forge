@@ -45,6 +45,19 @@ cf history "fix parser"
 
 ContextForge resolves the Git root automatically. Outside Git, it treats the current directory as the repository root.
 
+## MCP server
+
+ContextForge includes a read-only stdio MCP server for coding agents. It exposes a bounded tool surface for indexing, repository briefs, ranked search, symbols, references, relationship traces, and evidence-backed investigation reports. Every tool requires an absolute repository path.
+
+```bash
+claude mcp add --transport stdio --scope user contextforge -- contextforge-mcp
+codex mcp add contextforge -- contextforge-mcp
+```
+
+Set `CONTEXTFORGE_MCP_ROOT` to an absolute directory in the MCP client's environment to reject repository paths outside that tree. See [MCP integration](docs/mcp.md) for the tool contract, security boundary, development configuration, and removal commands.
+
+Third-party ContextForge plugins are disabled in MCP mode unless `CONTEXTFORGE_DISABLE_PLUGINS=0` is set explicitly; installed plugins execute in the server process and must be trusted.
+
 ## Plugins
 
 ContextForge discovers installed language and framework plugins through the

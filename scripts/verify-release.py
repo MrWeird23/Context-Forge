@@ -12,16 +12,20 @@ from pathlib import Path
 
 REQUIRED_SOURCE_FILES = {
     "contextforge/compatibility.py",
+    "contextforge/mcp_server.py",
     "docs/compatibility-1.0.json",
     "docs/compatibility.md",
     "docs/json-schema-1.0.json",
+    "docs/mcp.md",
     "docs/plugins.md",
 }
 REQUIRED_WHEEL_FILES = {
     "contextforge/compatibility.py",
+    "contextforge/mcp_server.py",
     "share/contextforge/compatibility-1.0.json",
     "share/contextforge/compatibility.md",
     "share/contextforge/json-schema-1.0.json",
+    "share/contextforge/mcp.md",
     "share/contextforge/plugins.md",
 }
 
@@ -76,12 +80,46 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="contextforge-release-") as directory:
         environment = Path(directory)
         run(sys.executable, "-m", "venv", str(environment))
-        python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-        cf = environment / ("Scripts/cf.exe" if sys.platform == "win32" else "bin/cf")
+        bin_dir = environment / ("Scripts" if sys.platform == "win32" else "bin")
+        python = bin_dir / ("python.exe" if sys.platform == "win32" else "python")
+        cf = bin_dir / ("cf.exe" if sys.platform == "win32" else "cf")
         run(str(python), "-m", "pip", "install", "--quiet", str(wheel.resolve()))
         version = subprocess.check_output([str(cf), "--version"], text=True).strip()
-        if version != "ContextForge 1.0.0":
+        if version != "ContextForge 1.1.0":
             raise SystemExit(f"Unexpected installed version: {version}")
+        mcp_name = "contextforge-mcp.exe" if sys.platform == "win32" else "contextforge-mcp"
+        mcp = bin_dir / mcp_name
+        if not mcp.exists():
+            raise SystemExit("Installed artifact is missing contextforge-mcp")
+        mcp_smoke_test = """
+import asyncio
+import sys
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+async def verify():
+    parameters = StdioServerParameters(command=sys.argv[1])
+    async with stdio_client(parameters) as streams:
+        async with ClientSession(*streams) as session:
+            initialized = await session.initialize()
+            tools = await session.list_tools()
+            expected = {
+                "contextforge_index",
+                "contextforge_investigate",
+                "contextforge_references",
+                "contextforge_repository_brief",
+                "contextforge_search",
+                "contextforge_symbol",
+                "contextforge_trace",
+            }
+            if initialized.serverInfo.name != "ContextForge":
+                raise SystemExit("Unexpected MCP server name")
+            if {tool.name for tool in tools.tools} != expected:
+                raise SystemExit("Unexpected MCP tool surface")
+
+asyncio.run(verify())
+"""
+        run(str(python), "-c", mcp_smoke_test, str(mcp))
         repository = environment / "repository"
         repository.mkdir()
         (repository / "example.py").write_text("def example():\n    return 1\n")

@@ -52,6 +52,10 @@ Before a future major upgrade:
 3. Run plugin compatibility tests against the new host.
 4. Allow ContextForge to rebuild derived indexes; do not copy internal SQLite state between incompatible versions.
 
+## MCP tool protocol
+
+ContextForge 1.1 adds a read-only stdio MCP tool protocol at version `1.0`. Tool results use JSON schema version `1.0`. Compatible releases may add optional tools, parameters, or response fields but will not remove or reinterpret the seven documented 1.0 tools. The transport and protocol version are recorded in `compatibility-1.0.json`.
+
 ## Security and resource boundaries
 
 ContextForge treats repository contents, paths, Git metadata, and analyzer input as untrusted data. Source snapshots use bounded, descriptor-relative access on supported POSIX systems; unsafe path traversal or symlink conditions fail closed. Index caches are stored outside repositories, keyed by canonical repository identity, validated before use, and replaced atomically when incompatible.

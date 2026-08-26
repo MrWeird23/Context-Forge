@@ -9,6 +9,7 @@ from jsonschema import Draft202012Validator
 
 from contextforge.compatibility import (
     JSON_OUTPUT_SCHEMA_VERSION,
+    MCP_TOOL_PROTOCOL_VERSION,
     PLUGIN_ENTRY_POINT_GROUP,
     PLUGIN_PROTOCOL_VERSION,
     SUPPORTED_PYTHON_VERSIONS,
@@ -33,6 +34,10 @@ def test_stable_compatibility_manifest_matches_runtime_contracts():
         "plugins": {
             "entry_point_group": PLUGIN_ENTRY_POINT_GROUP,
             "protocol_version": PLUGIN_PROTOCOL_VERSION,
+        },
+        "mcp": {
+            "tool_protocol_version": MCP_TOOL_PROTOCOL_VERSION,
+            "transport": "stdio",
         },
         "python": {
             "supported_versions": list(SUPPORTED_PYTHON_VERSIONS),
