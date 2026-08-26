@@ -45,6 +45,19 @@ cf history "fix parser"
 
 ContextForge resolves the Git root automatically. Outside Git, it treats the current directory as the repository root.
 
+## Plugins
+
+ContextForge discovers installed language and framework plugins through the
+`contextforge.plugins` Python entry-point group. Run `cf doctor` to inspect
+loaded plugins and plugin-specific diagnostics. Set
+`CONTEXTFORGE_DISABLE_PLUGINS=1` to disable discovery completely.
+
+Plugins execute as trusted in-process Python code and are not sandboxed. Review
+third-party plugin source and provenance before installation. See the
+[plugin development and security guide](docs/plugins.md) for the versioned
+protocol, deterministic conflict rules, compatibility requirements, and full
+security boundary.
+
 ## Export formats
 
 ContextForge produces deterministic artifacts suitable for documentation, pull requests, CI, and coding assistants:

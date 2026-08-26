@@ -3892,6 +3892,8 @@ _TYPEORM_ANALYZER = TypeORMAnalyzer()
 
 
 def framework_analyzer_registry() -> tuple[FrameworkAnalyzer, ...]:
+    from .plugins import plugin_registry
+
     return (
         _FASTAPI_ANALYZER,
         _FLASK_ANALYZER,
@@ -3905,6 +3907,7 @@ def framework_analyzer_registry() -> tuple[FrameworkAnalyzer, ...]:
         _ANGULAR_ANALYZER,
         _PRISMA_ANALYZER,
         _TYPEORM_ANALYZER,
+        *plugin_registry().framework_analyzers,
     )
 
 

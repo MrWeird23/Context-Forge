@@ -194,9 +194,9 @@ Confidence should remain explainable:
 
 The claim contract is now emitted by repository briefs and task-oriented reports in JSON and Markdown. Existing facts and inferences remain available for compatibility, while every standardized claim carries explicit support, conflicts, and unresolved uncertainty. Claims without supporting evidence cannot assert confidence above `unknown`.
 
-## Planned releases
+## Completed release: 0.9.0
 
-### 0.9.0 — Public plugin system
+### Public plugin system
 
 Allow contributors to add language, framework, and infrastructure support without modifying the core.
 
@@ -210,6 +210,18 @@ Design requirements:
 - Plugin-specific diagnostics
 - Compatibility testing
 - Explicit security boundaries for third-party plugins
+
+ContextForge now discovers versioned `1.0` plugins through Python entry points,
+selects analyzers and framework extractors with deterministic priority and
+conflict rules, includes accepted language extensions in repository scans, and
+reports discovery or runtime failures without allowing unsupported findings to
+enter the evidence model. Third-party plugins remain explicitly trusted,
+in-process code rather than a sandboxed extension mechanism.
+
+See [the plugin guide](docs/plugins.md) for authoring, diagnostics,
+compatibility testing, disablement, and security guidance.
+
+## Planned releases
 
 ### 1.0.0 — Stable compatibility contract
 

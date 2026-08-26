@@ -12,6 +12,7 @@ from .architecture import architecture_buckets
 from .detector import detect_project
 from .exporters import export
 from .output import console, title, success, warning, error, line
+from .plugins import plugin_registry
 from .scanner import IGNORE_DIRS, repo_root
 from .search import search_repo
 from .search import structured_search
@@ -570,6 +571,17 @@ def cmd_doctor(_args):
     issues = 0
 
     title("ContextForge Doctor")
+
+    plugins = plugin_registry()
+    if plugins.plugins:
+        names = ", ".join(plugin.name for plugin in plugins.plugins)
+        success(f"Loaded {len(plugins.plugins)} plugin(s): {names}")
+    else:
+        line("Plugins: none discovered")
+    for diagnostic in plugins.ordered_diagnostics():
+        issues += 1
+        location = diagnostic.plugin or diagnostic.entry_point or "unknown plugin"
+        warning(f"Plugin {location}: {diagnostic.message} [{diagnostic.code}]")
 
     if sys.version_info >= (3, 10):
         success(f"Python {sys.version.split()[0]}")
