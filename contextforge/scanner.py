@@ -70,7 +70,10 @@ def repo_root() -> Path:
 
 
 def iter_code_files(repo: Path) -> Iterator[Path]:
+    from .plugins import plugin_registry
+
     resolved_repo = repo.resolve()
+    code_extensions = CODE_EXTENSIONS | set(plugin_registry().analyzer_extensions)
     for current_root, dirs, filenames in os.walk(repo):
         root_path = Path(current_root)
         dirs[:] = [
@@ -88,5 +91,5 @@ def iter_code_files(repo: Path) -> Iterator[Path]:
             except ValueError:
                 continue
 
-            if path.suffix in CODE_EXTENSIONS and path.is_file():
+            if path.suffix.lower() in code_extensions and path.is_file():
                 yield path

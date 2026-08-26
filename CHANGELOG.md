@@ -1,3 +1,13 @@
+## 0.9.0
+
+### Public plugin system
+
+- Add a versioned `1.0` plugin protocol for third-party language analyzers and framework entity extractors discovered through Python entry points.
+- Select plugins and capabilities deterministically by priority and name while preserving core analyzer ownership and diagnosing conflicts.
+- Isolate plugin discovery and runtime exceptions with conservative fail-closed results and diagnostics that do not expose exception contents.
+- Include accepted plugin extensions in repository scans and report plugin health through `cf doctor`.
+- Document plugin development, compatibility testing, complete discovery disablement, and the explicit trusted-code security boundary.
+
 ## 0.8.0
 
 ### Evidence and confidence standards

@@ -1027,19 +1027,29 @@ _TYPESCRIPT_ANALYZER = TypeScriptAnalyzer()
 
 
 def analyzer_registry() -> tuple[Analyzer, ...]:
+    from .plugins import plugin_registry
+
     return (
         _PYTHON_ANALYZER,
         _JAVASCRIPT_ANALYZER,
         _TYPESCRIPT_ANALYZER,
         _GENERIC_ANALYZER,
+        *plugin_registry().analyzers,
     )
 
 
 def analyzer_for_path(path: Path) -> Analyzer:
-    if path.suffix == ".py":
+    suffix = path.suffix.lower()
+    if suffix == ".py":
         return _PYTHON_ANALYZER
-    if path.suffix in {".js", ".jsx", ".mjs", ".cjs"}:
+    if suffix in {".js", ".jsx", ".mjs", ".cjs"}:
         return _JAVASCRIPT_ANALYZER
-    if path.suffix in {".ts", ".tsx", ".mts", ".cts"}:
+    if suffix in {".ts", ".tsx", ".mts", ".cts"}:
         return _TYPESCRIPT_ANALYZER
+
+    from .plugins import plugin_registry
+
+    plugin_analyzer = plugin_registry().analyzer_for_path(path)
+    if plugin_analyzer is not None:
+        return plugin_analyzer
     return _GENERIC_ANALYZER
